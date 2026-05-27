@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
@@ -20,23 +20,25 @@ export function RobotProvider({ children }) {
   });
   const [loading, setLoading] = useState(false);
 
-  // Configure Axios instance
-  const api = axios.create({
+  const api = useMemo(() => axios.create({
     baseURL: serverUrl,
-  });
+  }), []);
 
-  // Inject token dynamically into all requests if user is authenticated
-  api.interceptors.request.use(
-    async (config) => {
-      config.baseURL = serverUrl;
-      const token = await SecureStore.getItemAsync('token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-      return config;
-    },
-    (error) => Promise.reject(error)
-  );
+  useEffect(() => {
+    const interceptor = api.interceptors.request.use(
+      async (config) => {
+        config.baseURL = serverUrl;
+        const token = await SecureStore.getItemAsync('token');
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    return () => api.interceptors.request.eject(interceptor);
+  }, [api, serverUrl]);
 
   // Load server URL from SecureStore on mount
   useEffect(() => {
@@ -120,6 +122,46 @@ export function RobotProvider({ children }) {
     }
   };
 
+  const moveRobot = async (vx, vy, vyaw) => {
+    try {
+      const response = await api.post('/move', { vx, vy, vyaw });
+      return response.data;
+    } catch (err) {
+      console.error('Move error:', err);
+      throw err;
+    }
+  };
+
+  const stopRobot = async () => {
+    try {
+      const response = await api.post('/stop');
+      return response.data;
+    } catch (err) {
+      console.error('Stop error:', err);
+      throw err;
+    }
+  };
+
+  const standUpRobot = async () => {
+    try {
+      const response = await api.post('/standup');
+      return response.data;
+    } catch (err) {
+      console.error('Stand up error:', err);
+      throw err;
+    }
+  };
+
+  const sitDownRobot = async () => {
+    try {
+      const response = await api.post('/sitdown');
+      return response.data;
+    } catch (err) {
+      console.error('Sit down error:', err);
+      throw err;
+    }
+  };
+
   return (
     <RobotContext.Provider
       value={{
@@ -129,6 +171,10 @@ export function RobotProvider({ children }) {
         setServerUrl,
         connectRobot,
         disconnectRobot,
+        moveRobot,
+        stopRobot,
+        standUpRobot,
+        sitDownRobot,
         fetchStatus,
         api,
       }}
