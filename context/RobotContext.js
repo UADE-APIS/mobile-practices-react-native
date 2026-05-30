@@ -1,16 +1,14 @@
-import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
-import { Platform } from 'react-native';
+import React, { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { AuthContext } from './AuthContext';
+import { API_TIMEOUT, getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 
 export const RobotContext = createContext(null);
 
 export function RobotProvider({ children }) {
   const { user } = useContext(AuthContext);
-  const [serverUrl, setServerUrlState] = useState(
-    Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000'
-  );
+  const [serverUrl, setServerUrlState] = useState(getDefaultServerUrl());
   const [status, setStatus] = useState({
     connection_state: 'disconnected',
     robot_type: null,
@@ -22,12 +20,13 @@ export function RobotProvider({ children }) {
 
   const api = useMemo(() => axios.create({
     baseURL: serverUrl,
+    timeout: API_TIMEOUT,
   }), []);
 
   useEffect(() => {
     const interceptor = api.interceptors.request.use(
       async (config) => {
-        config.baseURL = serverUrl;
+        config.baseURL = normalizeServerUrl(serverUrl);
         const token = await SecureStore.getItemAsync('token');
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
@@ -46,7 +45,7 @@ export function RobotProvider({ children }) {
       try {
         const savedUrl = await SecureStore.getItemAsync('server_url');
         if (savedUrl) {
-          setServerUrlState(savedUrl);
+          setServerUrlState(normalizeServerUrl(savedUrl));
         }
       } catch (err) {
         console.error('Failed to load server URL from SecureStore:', err);
@@ -55,16 +54,17 @@ export function RobotProvider({ children }) {
     loadConfig();
   }, []);
 
-  const setServerUrl = async (url) => {
+  const setServerUrl = useCallback(async (url) => {
     try {
-      await SecureStore.setItemAsync('server_url', url);
-      setServerUrlState(url);
+      const cleanUrl = normalizeServerUrl(url);
+      await SecureStore.setItemAsync('server_url', cleanUrl);
+      setServerUrlState(cleanUrl);
     } catch (err) {
       console.error('Failed to save server URL:', err);
     }
-  };
+  }, []);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     if (!user) return;
     try {
       const response = await api.get('/status');
@@ -72,7 +72,7 @@ export function RobotProvider({ children }) {
     } catch (err) {
       console.error('Error fetching status:', err);
     }
-  };
+  }, [api, user]);
 
   // Poll status periodically when user is logged in
   useEffect(() => {
@@ -89,9 +89,9 @@ export function RobotProvider({ children }) {
         last_error: null,
       });
     }
-  }, [user, serverUrl]);
+  }, [fetchStatus, user]);
 
-  const connectRobot = async (robotType, iface = 'eth0') => {
+  const connectRobot = useCallback(async (robotType, iface = 'eth0') => {
     setLoading(true);
     try {
       const response = await api.post('/connect', {
@@ -106,9 +106,9 @@ export function RobotProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [api, fetchStatus]);
 
-  const disconnectRobot = async () => {
+  const disconnectRobot = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.post('/disconnect');
@@ -120,9 +120,9 @@ export function RobotProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [api, fetchStatus]);
 
-  const moveRobot = async (vx, vy, vyaw) => {
+  const moveRobot = useCallback(async (vx, vy, vyaw) => {
     try {
       const response = await api.post('/move', { vx, vy, vyaw });
       return response.data;
@@ -130,9 +130,9 @@ export function RobotProvider({ children }) {
       console.error('Move error:', err);
       throw err;
     }
-  };
+  }, [api]);
 
-  const stopRobot = async () => {
+  const stopRobot = useCallback(async () => {
     try {
       const response = await api.post('/stop');
       return response.data;
@@ -140,9 +140,9 @@ export function RobotProvider({ children }) {
       console.error('Stop error:', err);
       throw err;
     }
-  };
+  }, [api]);
 
-  const standUpRobot = async () => {
+  const standUpRobot = useCallback(async () => {
     try {
       const response = await api.post('/standup');
       return response.data;
@@ -150,9 +150,9 @@ export function RobotProvider({ children }) {
       console.error('Stand up error:', err);
       throw err;
     }
-  };
+  }, [api]);
 
-  const sitDownRobot = async () => {
+  const sitDownRobot = useCallback(async () => {
     try {
       const response = await api.post('/sitdown');
       return response.data;
@@ -160,7 +160,7 @@ export function RobotProvider({ children }) {
       console.error('Sit down error:', err);
       throw err;
     }
-  };
+  }, [api]);
 
   return (
     <RobotContext.Provider

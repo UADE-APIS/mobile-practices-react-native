@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
+import { API_TIMEOUT, getApiErrorMessage, normalizeServerUrl, withTimeout } from '../config/api';
 
 export const AuthContext = createContext(null);
 
@@ -30,39 +31,51 @@ export function AuthProvider({ children }) {
 
   const login = async (identifier, password, serverUrl) => {
     try {
-      const response = await axios.post(`${serverUrl}/auth/token`, {
-        identifier,
-        password,
-      });
+      const cleanServerUrl = normalizeServerUrl(serverUrl);
+      const cleanIdentifier = identifier.trim();
+
+      const response = await withTimeout(
+        axios.post(`${cleanServerUrl}/auth/token`, {
+          identifier: cleanIdentifier,
+          password,
+        }, {
+          timeout: API_TIMEOUT,
+        }),
+        'No se pudo conectar con el servidor.'
+      );
 
       const { access_token } = response.data;
-      
-      // Save credentials and configuration
+
       await SecureStore.setItemAsync('token', access_token);
-      await SecureStore.setItemAsync('username', identifier); // Save the username
-      await SecureStore.setItemAsync('server_url', serverUrl);
-      
-      setUser({ username: identifier });
+      await SecureStore.setItemAsync('username', cleanIdentifier);
+      await SecureStore.setItemAsync('server_url', cleanServerUrl);
+
+      setUser({ username: cleanIdentifier });
       return { success: true };
     } catch (err) {
       console.error('Login error:', err);
-      const detail = err.response?.data?.detail || 'Error de conexión con el servidor.';
-      throw new Error(detail);
+      throw new Error(getApiErrorMessage(err));
     }
   };
 
   const register = async (username, email, password, serverUrl) => {
     try {
-      await axios.post(`${serverUrl}/auth/register`, {
-        username,
-        email,
-        password,
-      });
+      const cleanServerUrl = normalizeServerUrl(serverUrl);
+
+      await withTimeout(
+        axios.post(`${cleanServerUrl}/auth/register`, {
+          username: username.trim(),
+          email: email.trim(),
+          password,
+        }, {
+          timeout: API_TIMEOUT,
+        }),
+        'No se pudo conectar con el servidor.'
+      );
       return { success: true };
     } catch (err) {
       console.error('Registration error:', err);
-      const detail = err.response?.data?.detail || 'Error de conexión con el servidor.';
-      throw new Error(detail);
+      throw new Error(getApiErrorMessage(err));
     }
   };
 
