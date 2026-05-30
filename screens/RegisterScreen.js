@@ -14,6 +14,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { Theme } from '../config/theme';
+import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 
 export default function RegisterScreen({ route, navigation }) {
   const { register } = useContext(AuthContext);
@@ -23,14 +24,14 @@ export default function RegisterScreen({ route, navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [serverUrl, setServerUrl] = useState(
-    routeServerUrl || (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000')
-  );
+  const [serverUrl, setServerUrl] = useState(routeServerUrl || getDefaultServerUrl());
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleRegister = async () => {
-    if (!username || !email || !password || !confirmPassword || !serverUrl) {
+    const cleanServerUrl = normalizeServerUrl(serverUrl);
+
+    if (!username.trim() || !email.trim() || !password || !confirmPassword || !cleanServerUrl) {
       Alert.alert('Campos incompletos', 'Por favor completa todos los campos.');
       return;
     }
@@ -42,7 +43,7 @@ export default function RegisterScreen({ route, navigation }) {
 
     setLoading(true);
     try {
-      await register(username, email, password, serverUrl);
+      await register(username, email, password, cleanServerUrl);
       Alert.alert(
         'Registro Exitoso',
         'Operador registrado con éxito. Ya podés iniciar sesión.',

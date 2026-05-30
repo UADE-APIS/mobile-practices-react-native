@@ -14,28 +14,29 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { Theme } from '../config/theme';
+import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 
 export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
   
   const [identifier, setIdentifier] = useState('JBE10');
   const [password, setPassword] = useState('password123'); // Default for development
-  const [serverUrl, setServerUrl] = useState(
-    Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000'
-  );
+  const [serverUrl, setServerUrl] = useState(getDefaultServerUrl());
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async () => {
-    if (!identifier || !password || !serverUrl) {
+    const cleanServerUrl = normalizeServerUrl(serverUrl);
+    const cleanIdentifier = identifier.trim();
+
+    if (!cleanIdentifier || !password || !cleanServerUrl) {
       Alert.alert('Campos incompletos', 'Por favor completa todos los campos.');
       return;
     }
     
-    setLoading(false);
     setLoading(true);
     try {
-      await login(identifier, password, serverUrl);
+      await login(cleanIdentifier, password, cleanServerUrl);
     } catch (err) {
       Alert.alert('Error de Autenticación', err.message);
     } finally {
