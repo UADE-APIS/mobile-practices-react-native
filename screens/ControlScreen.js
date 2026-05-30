@@ -29,6 +29,16 @@ function roundCommand(value) {
   return Number(value.toFixed(2));
 }
 
+export function getJoystickCommand(x, y, joystickMode) {
+  const normalizedX = x / JOYSTICK_RADIUS;
+  const normalizedY = y / JOYSTICK_RADIUS;
+  const vx = roundCommand(-normalizedY * MAX_LINEAR_SPEED);
+  const vy = joystickMode === 'lateral' ? roundCommand(normalizedX * MAX_LINEAR_SPEED) : 0;
+  const vyaw = joystickMode === 'giro' ? roundCommand(normalizedX * MAX_YAW_SPEED) : 0;
+
+  return { vx, vy, vyaw };
+}
+
 function getApiError(err) {
   return err.response?.data?.detail || err.response?.data?.error || 'No se pudo completar el comando.';
 }
@@ -50,32 +60,62 @@ export default function ControlScreen() {
   const [joystickCommand, setJoystickCommand] = useState({ vx: 0, vy: 0, vyaw: 0 });
 
   const lastMoveSentAt = useRef(0);
+  const latestCommandId = useRef(0);
+  const pendingMoveRequests = useRef(new Set());
   const isConnected = status.connection_state === 'connected';
+  const commandsEnabled = isConnected && commandLoading === null;
   const robotType = status.robot_type ? status.robot_type.toUpperCase() : 'ROBOT';
+
+  const sendMoveRequest = useCallback((vx, vy, vyaw) => {
+    const request = moveRobot(vx, vy, vyaw);
+    pendingMoveRequests.current.add(request);
+    request.finally(() => pendingMoveRequests.current.delete(request)).catch(() => {});
+    return request;
+  }, [moveRobot]);
+
+  const stopAfterPendingMoves = useCallback(async () => {
+    const pendingRequests = [...pendingMoveRequests.current];
+    await stopRobot();
+
+    if (pendingRequests.length > 0) {
+      await Promise.allSettled(pendingRequests);
+      await stopRobot();
+    }
+  }, [stopRobot]);
 
   const sendStop = useCallback(async (showFeedback = false) => {
     if (!isConnected) return;
 
+    const commandId = ++latestCommandId.current;
     try {
-      await stopRobot();
+      await stopAfterPendingMoves();
+      if (latestCommandId.current !== commandId) return;
+
       setCurrentCommand(null);
       setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
       if (showFeedback) {
         setFeedback({ type: 'success', message: 'Robot detenido correctamente.' });
       }
     } catch (err) {
-      setFeedback({ type: 'error', message: getApiError(err) });
+      if (latestCommandId.current === commandId) {
+        setFeedback({ type: 'error', message: getApiError(err) });
+      }
     }
-  }, [isConnected, stopRobot]);
+  }, [isConnected, stopAfterPendingMoves]);
 
   useFocusEffect(
     useCallback(() => {
       return () => {
         if (isConnected) {
-          stopRobot().catch((err) => console.error('Stop on blur error:', err));
+          const commandId = ++latestCommandId.current;
+          stopAfterPendingMoves().catch((err) => {
+            if (latestCommandId.current === commandId) {
+              console.error('Stop on blur error:', err);
+            }
+          });
         }
       };
-    }, [isConnected, stopRobot])
+    }, [isConnected, stopAfterPendingMoves])
   );
 
   const sendMove = async (label, vx, vy, vyaw) => {
@@ -85,21 +125,26 @@ export default function ControlScreen() {
     }
 
     setCommandLoading(label);
+    const commandId = ++latestCommandId.current;
     try {
-      await moveRobot(vx, vy, vyaw);
+      await sendMoveRequest(vx, vy, vyaw);
+      if (latestCommandId.current !== commandId) return;
+
       setCurrentCommand({ label, vx, vy, vyaw });
       setFeedback({ type: 'success', message: `${label} enviado correctamente.` });
     } catch (err) {
-      setFeedback({ type: 'error', message: getApiError(err) });
+      if (latestCommandId.current === commandId) {
+        setFeedback({ type: 'error', message: getApiError(err) });
+      }
     } finally {
-      setCommandLoading(null);
+      setCommandLoading((current) => current === label ? null : current);
     }
   };
 
   const handleStop = async () => {
     setCommandLoading('stop');
     await sendStop(true);
-    setCommandLoading(null);
+    setCommandLoading((current) => current === 'stop' ? null : current);
     setKnobPosition({ x: 0, y: 0 });
   };
 
@@ -111,29 +156,33 @@ export default function ControlScreen() {
 
     const isStandUp = type === 'standup';
     setCommandLoading(type);
+    const commandId = ++latestCommandId.current;
     try {
       const request = isStandUp ? standUpRobot : sitDownRobot;
+      await stopAfterPendingMoves();
+      if (latestCommandId.current !== commandId) return;
+
       await request();
+      if (latestCommandId.current !== commandId) return;
+
       setCurrentCommand(null);
+      setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
+      setKnobPosition({ x: 0, y: 0 });
       setFeedback({
         type: 'success',
         message: isStandUp ? 'Comando Pararse enviado correctamente.' : 'Comando Sentarse enviado correctamente.',
       });
     } catch (err) {
-      setFeedback({ type: 'error', message: getApiError(err) });
+      if (latestCommandId.current === commandId) {
+        setFeedback({ type: 'error', message: getApiError(err) });
+      }
     } finally {
-      setCommandLoading(null);
+      setCommandLoading((current) => current === type ? null : current);
     }
   };
 
   const buildJoystickCommand = useCallback((x, y) => {
-    const normalizedX = x / JOYSTICK_RADIUS;
-    const normalizedY = y / JOYSTICK_RADIUS;
-    const vx = roundCommand(-normalizedY * MAX_LINEAR_SPEED);
-    const vy = joystickMode === 'lateral' ? roundCommand(normalizedX * MAX_LINEAR_SPEED) : 0;
-    const vyaw = joystickMode === 'giro' ? roundCommand(normalizedX * MAX_YAW_SPEED) : 0;
-
-    return { vx, vy, vyaw };
+    return getJoystickCommand(x, y, joystickMode);
   }, [joystickMode]);
 
   const sendJoystickMove = useCallback((x, y) => {
@@ -141,24 +190,29 @@ export default function ControlScreen() {
     const command = buildJoystickCommand(x, y);
     setJoystickCommand(command);
 
-    if (!isConnected || now - lastMoveSentAt.current < MOVE_THROTTLE_MS) {
+    if (!commandsEnabled || now - lastMoveSentAt.current < MOVE_THROTTLE_MS) {
       return;
     }
 
     lastMoveSentAt.current = now;
-    moveRobot(command.vx, command.vy, command.vyaw)
+    const commandId = ++latestCommandId.current;
+    sendMoveRequest(command.vx, command.vy, command.vyaw)
       .then(() => {
+        if (latestCommandId.current !== commandId) return;
+
         setCurrentCommand({ label: 'Joystick', ...command });
         setFeedback({ type: 'success', message: 'Control por joystick activo.' });
       })
       .catch((err) => {
-        setFeedback({ type: 'error', message: getApiError(err) });
+        if (latestCommandId.current === commandId) {
+          setFeedback({ type: 'error', message: getApiError(err) });
+        }
       });
-  }, [buildJoystickCommand, isConnected, moveRobot]);
+  }, [buildJoystickCommand, commandsEnabled, sendMoveRequest]);
 
   const joystickResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => isConnected,
-    onMoveShouldSetPanResponder: () => isConnected,
+    onStartShouldSetPanResponder: () => commandsEnabled,
+    onMoveShouldSetPanResponder: () => commandsEnabled,
     onPanResponderMove: (_, gestureState) => {
       const x = clamp(gestureState.dx, -JOYSTICK_RADIUS, JOYSTICK_RADIUS);
       const y = clamp(gestureState.dy, -JOYSTICK_RADIUS, JOYSTICK_RADIUS);
@@ -173,12 +227,12 @@ export default function ControlScreen() {
       setKnobPosition({ x: 0, y: 0 });
       sendStop(false);
     },
-  }), [isConnected, sendJoystickMove, sendStop]);
+  }), [commandsEnabled, sendJoystickMove, sendStop]);
 
   const renderCommandButton = (label, icon, vx, vy, vyaw, style) => (
     <TouchableOpacity
       style={[styles.directionButton, style, !isConnected && styles.disabledButton]}
-      disabled={!isConnected || commandLoading !== null}
+      disabled={!commandsEnabled}
       onPress={() => sendMove(label, vx, vy, vyaw)}
     >
       {commandLoading === label ? (
@@ -224,7 +278,7 @@ export default function ControlScreen() {
             {renderCommandButton('Izquierda', 'arrow-left-bold', 0, MAX_LINEAR_SPEED, 0)}
             <TouchableOpacity
               style={[styles.stopButton, !isConnected && styles.disabledButton]}
-              disabled={!isConnected || commandLoading !== null}
+              disabled={!isConnected}
               onPress={handleStop}
             >
               {commandLoading === 'stop' ? (
@@ -298,7 +352,11 @@ export default function ControlScreen() {
         </View>
 
         <View style={styles.joystickContainer}>
-          <View style={[styles.joystickBase, !isConnected && styles.disabledJoystick]} {...joystickResponder.panHandlers}>
+          <View
+            testID="joystick-base"
+            style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
+            {...joystickResponder.panHandlers}
+          >
             <View style={styles.joystickCrossVertical} />
             <View style={styles.joystickCrossHorizontal} />
             <View
