@@ -1,4 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
+import axios from 'axios';
+import * as SecureStore from 'expo-secure-store';
 
 export const API_TIMEOUT = 10000;
 
@@ -40,3 +42,16 @@ export function getApiErrorMessage(err) {
     || err.message
     || 'Error de conexion con el servidor.';
 }
+
+export const api = axios.create({
+  baseURL: getDefaultServerUrl(),
+  timeout: API_TIMEOUT,
+});
+
+api.interceptors.request.use(async (config) => {
+  const token = await SecureStore.getItemAsync('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
