@@ -14,10 +14,11 @@ export function AuthProvider({ children }) {
     const bootstrapAsync = async () => {
       try {
         const token = await SecureStore.getItemAsync('token');
+        const email = await SecureStore.getItemAsync('email');
         const username = await SecureStore.getItemAsync('username');
         
-        if (token && username) {
-          setUser({ username });
+        if (token && (email || username)) {
+          setUser({ email: email || username, username: username || email });
         }
       } catch (e) {
         console.error('Failed to load login state from SecureStore:', e);
@@ -29,14 +30,14 @@ export function AuthProvider({ children }) {
     bootstrapAsync();
   }, []);
 
-  const login = async (identifier, password, serverUrl) => {
+  const login = async (email, password, serverUrl) => {
     try {
       const cleanServerUrl = normalizeServerUrl(serverUrl);
-      const cleanIdentifier = identifier.trim();
+      const cleanEmail = email.trim().toLowerCase();
 
       const response = await withTimeout(
         axios.post(`${cleanServerUrl}/auth/token`, {
-          identifier: cleanIdentifier,
+          identifier: cleanEmail,
           password,
         }, {
           timeout: API_TIMEOUT,
@@ -47,10 +48,11 @@ export function AuthProvider({ children }) {
       const { access_token } = response.data;
 
       await SecureStore.setItemAsync('token', access_token);
-      await SecureStore.setItemAsync('username', cleanIdentifier);
+      await SecureStore.setItemAsync('email', cleanEmail);
+      await SecureStore.setItemAsync('username', cleanEmail);
       await SecureStore.setItemAsync('server_url', cleanServerUrl);
 
-      setUser({ username: cleanIdentifier });
+      setUser({ email: cleanEmail, username: cleanEmail });
       return { success: true };
     } catch (err) {
       console.error('Login error:', err);
@@ -82,6 +84,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       await SecureStore.deleteItemAsync('token');
+      await SecureStore.deleteItemAsync('email');
       await SecureStore.deleteItemAsync('username');
       setUser(null);
     } catch (e) {

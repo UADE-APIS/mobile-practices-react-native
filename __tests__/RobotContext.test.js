@@ -10,7 +10,13 @@ jest.mock('expo-secure-store', () => ({
 }));
 
 jest.mock('axios', () => ({
-  create: jest.fn(),
+  create: jest.fn(() => ({
+    interceptors: {
+      request: {
+        use: jest.fn(),
+      },
+    },
+  })),
 }));
 
 describe('RobotContext', () => {
