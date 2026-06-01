@@ -30,8 +30,10 @@ export default function RegisterScreen({ route, navigation }) {
 
   const handleRegister = async () => {
     const cleanServerUrl = normalizeServerUrl(serverUrl);
+    const cleanUsername = username.trim();
+    const cleanEmail = email.trim().toLowerCase();
 
-    if (!username.trim() || !email.trim() || !password || !confirmPassword || !cleanServerUrl) {
+    if (!cleanUsername || !cleanEmail || !password || !confirmPassword || !cleanServerUrl) {
       Alert.alert('Campos incompletos', 'Por favor completa todos los campos.');
       return;
     }
@@ -43,14 +45,20 @@ export default function RegisterScreen({ route, navigation }) {
 
     setLoading(true);
     try {
-      await register(username, email, password, cleanServerUrl);
-      Alert.alert(
-        'Registro Exitoso',
-        'Operador registrado con éxito. Ya podés iniciar sesión.',
-        [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
-      );
+      await register(cleanUsername, cleanEmail, password, cleanServerUrl);
+      navigation.navigate('Login');
     } catch (err) {
-      Alert.alert('Error de Registro', err.message);
+      const message = err.message || '';
+      const duplicateMessage = message.toLowerCase().includes('exists')
+        || message.toLowerCase().includes('exist')
+        || message.toLowerCase().includes('duplicate')
+        || message.toLowerCase().includes('already')
+        || message.toLowerCase().includes('registrado')
+        || message.toLowerCase().includes('existe')
+        ? 'El email o nombre de usuario ya existe. Probá iniciar sesión o usá otros datos.'
+        : message;
+
+      Alert.alert('Error de Registro', duplicateMessage);
     } finally {
       setLoading(false);
     }
@@ -97,7 +105,7 @@ export default function RegisterScreen({ route, navigation }) {
             <TextInput
               style={styles.textInput}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(value) => setEmail(value.toLowerCase())}
               placeholder="Ej: operador@uade.edu.ar"
               placeholderTextColor={Theme.colors.textDim}
               keyboardType="email-address"
@@ -148,7 +156,7 @@ export default function RegisterScreen({ route, navigation }) {
             <ActivityIndicator size="large" color={Theme.colors.accent} style={styles.loader} />
           ) : (
             <TouchableOpacity style={styles.registerButton} onPress={handleRegister}>
-              <Text style={styles.registerButtonText}>CREAR OPERADOR</Text>
+              <Text style={styles.registerButtonText}>REGISTRARSE</Text>
             </TouchableOpacity>
           )}
 
