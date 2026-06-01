@@ -7,7 +7,7 @@ import { API_TIMEOUT, getDefaultServerUrl, normalizeServerUrl } from '../config/
 export const RobotContext = createContext(null);
 
 export function RobotProvider({ children }) {
-  const { user } = useContext(AuthContext);
+  const { user, logout } = useContext(AuthContext);
   const [serverUrl, setServerUrlState] = useState(getDefaultServerUrl());
   const [status, setStatus] = useState({
     connection_state: 'disconnected',
@@ -70,9 +70,15 @@ export function RobotProvider({ children }) {
       const response = await api.get('/status');
       setStatus(response.data);
     } catch (err) {
-      console.error('Error fetching status:', err);
+      console.warn('Error fetching status:', err.message || err);
+      if (err.response && err.response.status === 401) {
+        console.warn('Token expired or invalid, logging out...');
+        if (logout) {
+          logout();
+        }
+      }
     }
-  }, [api, user]);
+  }, [api, user, logout]);
 
   // Poll status periodically when user is logged in
   useEffect(() => {
