@@ -46,7 +46,11 @@ export default function RegisterScreen({ route, navigation }) {
     setLoading(true);
     try {
       await register(cleanUsername, cleanEmail, password, cleanServerUrl);
-      navigation.navigate('Login');
+      Alert.alert(
+        'Registro Exitoso',
+        'Operador registrado con éxito. Ya podés iniciar sesión.',
+        [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
+      );
     } catch (err) {
       const message = err.message || '';
       const duplicateMessage = message.toLowerCase().includes('exists')
