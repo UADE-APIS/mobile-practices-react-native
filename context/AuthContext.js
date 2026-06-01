@@ -14,10 +14,17 @@ export function AuthProvider({ children }) {
     const bootstrapAsync = async () => {
       try {
         const token = await SecureStore.getItemAsync('token');
+        const identifier = await SecureStore.getItemAsync('identifier');
+        const email = await SecureStore.getItemAsync('email');
         const username = await SecureStore.getItemAsync('username');
+        const savedIdentifier = identifier || username || email;
         
-        if (token && username) {
-          setUser({ username });
+        if (token && savedIdentifier) {
+          setUser({
+            identifier: savedIdentifier,
+            email,
+            username: username || savedIdentifier,
+          });
         }
       } catch (e) {
         console.error('Failed to load login state from SecureStore:', e);
@@ -47,10 +54,12 @@ export function AuthProvider({ children }) {
       const { access_token } = response.data;
 
       await SecureStore.setItemAsync('token', access_token);
+      await SecureStore.setItemAsync('identifier', cleanIdentifier);
       await SecureStore.setItemAsync('username', cleanIdentifier);
+      await SecureStore.deleteItemAsync('email');
       await SecureStore.setItemAsync('server_url', cleanServerUrl);
 
-      setUser({ username: cleanIdentifier });
+      setUser({ identifier: cleanIdentifier, username: cleanIdentifier });
       return { success: true };
     } catch (err) {
       console.error('Login error:', err);
@@ -82,6 +91,8 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       await SecureStore.deleteItemAsync('token');
+      await SecureStore.deleteItemAsync('identifier');
+      await SecureStore.deleteItemAsync('email');
       await SecureStore.deleteItemAsync('username');
       setUser(null);
     } catch (e) {

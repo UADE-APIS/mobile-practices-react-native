@@ -22,7 +22,7 @@ function getRobotErrorMessage(err, fallback) {
 }
 
 export function RobotProvider({ children }) {
-  const { user } = useContext(AuthContext);
+  const { user, logout } = useContext(AuthContext);
   const [serverUrl, setServerUrlState] = useState(getDefaultServerUrl());
   const [status, setStatus] = useState(DEFAULT_STATUS);
   const [loading, setLoading] = useState(false);
@@ -79,14 +79,21 @@ export function RobotProvider({ children }) {
       const response = await api.get('/status');
       setStatus(response.data);
     } catch (err) {
-      console.error('Error fetching status:', err);
-      setStatus((currentStatus) => ({
-        ...currentStatus,
-        connection_state: 'error',
-        last_error: getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.'),
-      }));
+      console.warn('Error fetching status:', err.message || err);
+      if (err.response && err.response.status === 401) {
+        console.warn('Token expired or invalid, logging out...');
+        if (logout) {
+          logout();
+        }
+      } else {
+        setStatus((currentStatus) => ({
+          ...currentStatus,
+          connection_state: 'error',
+          last_error: getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.'),
+        }));
+      }
     }
-  }, [api, user]);
+  }, [api, user, logout]);
 
   // Poll status periodically when user is logged in
   useEffect(() => {

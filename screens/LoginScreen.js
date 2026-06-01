@@ -19,8 +19,8 @@ import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
   
-  const [identifier, setIdentifier] = useState('JBE10');
-  const [password, setPassword] = useState('password123'); // Default for development
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [serverUrl, setServerUrl] = useState(getDefaultServerUrl());
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -38,7 +38,7 @@ export default function LoginScreen({ navigation }) {
     try {
       await login(cleanIdentifier, password, cleanServerUrl);
     } catch (err) {
-      Alert.alert('Error de Autenticación', err.message);
+      Alert.alert('Credenciales incorrectas', err.message || 'El usuario/email o la contraseña no son correctos.');
     } finally {
       setLoading(false);
     }
@@ -75,14 +75,14 @@ export default function LoginScreen({ navigation }) {
             />
           </View>
 
-          <Text style={styles.inputLabel}>Identificador (Usuario o Email)</Text>
+          <Text style={styles.inputLabel}>Usuario o Email</Text>
           <View style={styles.inputWrapper}>
             <MaterialCommunityIcons name="account" size={20} color={Theme.colors.textMuted} style={styles.inputIcon} />
             <TextInput
               style={styles.textInput}
               value={identifier}
               onChangeText={setIdentifier}
-              placeholder="Nombre de usuario"
+              placeholder="JBE10 u operador@uade.edu.ar"
               placeholderTextColor={Theme.colors.textDim}
               autoCapitalize="none"
               autoCorrect={false}
@@ -126,7 +126,7 @@ export default function LoginScreen({ navigation }) {
             onPress={() => navigation.navigate('Register', { serverUrl })}
           >
             <Text style={styles.registerLinkText}>
-              ¿No tenés una cuenta? <Text style={styles.registerLinkBold}>Registrate aquí</Text>
+              ¿No tenés una cuenta? <Text style={styles.registerLinkBold}>Registrarse</Text>
             </Text>
           </TouchableOpacity>
         </View>
