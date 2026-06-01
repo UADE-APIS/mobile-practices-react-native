@@ -6,16 +6,25 @@ import { API_TIMEOUT, getDefaultServerUrl, normalizeServerUrl } from '../config/
 
 export const RobotContext = createContext(null);
 
+const DEFAULT_STATUS = {
+  connection_state: 'disconnected',
+  robot_type: null,
+  network_interface: null,
+  connected_at: null,
+  last_error: null,
+};
+
+function getRobotErrorMessage(err, fallback) {
+  return err.response?.data?.detail
+    || err.response?.data?.error
+    || err.message
+    || fallback;
+}
+
 export function RobotProvider({ children }) {
   const { user, logout } = useContext(AuthContext);
   const [serverUrl, setServerUrlState] = useState(getDefaultServerUrl());
-  const [status, setStatus] = useState({
-    connection_state: 'disconnected',
-    robot_type: null,
-    network_interface: null,
-    connected_at: null,
-    last_error: null,
-  });
+  const [status, setStatus] = useState(DEFAULT_STATUS);
   const [loading, setLoading] = useState(false);
 
   const api = useMemo(() => axios.create({
@@ -76,6 +85,12 @@ export function RobotProvider({ children }) {
         if (logout) {
           logout();
         }
+      } else {
+        setStatus((currentStatus) => ({
+          ...currentStatus,
+          connection_state: 'error',
+          last_error: getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.'),
+        }));
       }
     }
   }, [api, user, logout]);
@@ -87,18 +102,19 @@ export function RobotProvider({ children }) {
       const interval = setInterval(fetchStatus, 3000);
       return () => clearInterval(interval);
     } else {
-      setStatus({
-        connection_state: 'disconnected',
-        robot_type: null,
-        network_interface: null,
-        connected_at: null,
-        last_error: null,
-      });
+      setStatus(DEFAULT_STATUS);
     }
   }, [fetchStatus, user]);
 
   const connectRobot = useCallback(async (robotType, iface = 'eth0') => {
     setLoading(true);
+    setStatus((currentStatus) => ({
+      ...currentStatus,
+      connection_state: 'connecting',
+      robot_type: robotType,
+      network_interface: iface,
+      last_error: null,
+    }));
     try {
       const response = await api.post('/connect', {
         robot_type: robotType,
@@ -108,6 +124,11 @@ export function RobotProvider({ children }) {
       return response.data;
     } catch (err) {
       console.error('Connection error:', err);
+      setStatus((currentStatus) => ({
+        ...currentStatus,
+        connection_state: 'error',
+        last_error: getRobotErrorMessage(err, 'No se pudo establecer la conexión con el robot.'),
+      }));
       throw err;
     } finally {
       setLoading(false);
@@ -122,6 +143,11 @@ export function RobotProvider({ children }) {
       return response.data;
     } catch (err) {
       console.error('Disconnection error:', err);
+      setStatus((currentStatus) => ({
+        ...currentStatus,
+        connection_state: 'error',
+        last_error: getRobotErrorMessage(err, 'No se pudo desconectar el robot.'),
+      }));
       throw err;
     } finally {
       setLoading(false);
