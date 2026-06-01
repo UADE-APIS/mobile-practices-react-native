@@ -19,7 +19,7 @@ import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
   
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [serverUrl, setServerUrl] = useState(getDefaultServerUrl());
   const [loading, setLoading] = useState(false);
@@ -27,18 +27,18 @@ export default function LoginScreen({ navigation }) {
 
   const handleLogin = async () => {
     const cleanServerUrl = normalizeServerUrl(serverUrl);
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanIdentifier = identifier.trim();
 
-    if (!cleanEmail || !password || !cleanServerUrl) {
+    if (!cleanIdentifier || !password || !cleanServerUrl) {
       Alert.alert('Campos incompletos', 'Por favor completa todos los campos.');
       return;
     }
     
     setLoading(true);
     try {
-      await login(cleanEmail, password, cleanServerUrl);
+      await login(cleanIdentifier, password, cleanServerUrl);
     } catch (err) {
-      Alert.alert('Credenciales incorrectas', err.message || 'El email o la contraseña no son correctos.');
+      Alert.alert('Credenciales incorrectas', err.message || 'El usuario/email o la contraseña no son correctos.');
     } finally {
       setLoading(false);
     }
@@ -75,16 +75,15 @@ export default function LoginScreen({ navigation }) {
             />
           </View>
 
-          <Text style={styles.inputLabel}>Email</Text>
+          <Text style={styles.inputLabel}>Usuario o Email</Text>
           <View style={styles.inputWrapper}>
-            <MaterialCommunityIcons name="email" size={20} color={Theme.colors.textMuted} style={styles.inputIcon} />
+            <MaterialCommunityIcons name="account" size={20} color={Theme.colors.textMuted} style={styles.inputIcon} />
             <TextInput
               style={styles.textInput}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="operador@uade.edu.ar"
+              value={identifier}
+              onChangeText={setIdentifier}
+              placeholder="JBE10 u operador@uade.edu.ar"
               placeholderTextColor={Theme.colors.textDim}
-              keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
             />
