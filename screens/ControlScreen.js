@@ -43,6 +43,42 @@ function getApiError(err) {
   return err.response?.data?.detail || err.response?.data?.error || 'No se pudo completar el comando.';
 }
 
+function getConnectionView(status, robotType) {
+  if (status.connection_state === 'connected') {
+    return {
+      icon: 'robot',
+      color: Theme.colors.success,
+      title: `Control activo - ${robotType}`,
+      subtitle: 'Los comandos se envían directamente al backend.',
+    };
+  }
+
+  if (status.connection_state === 'connecting') {
+    return {
+      icon: 'robot-happy',
+      color: Theme.colors.warning,
+      title: 'Conectando robot',
+      subtitle: 'Esperando confirmación del backend antes de habilitar comandos.',
+    };
+  }
+
+  if (status.connection_state === 'error') {
+    return {
+      icon: 'robot-dead',
+      color: Theme.colors.error,
+      title: 'Error de conexión',
+      subtitle: status.last_error || 'No se pudo determinar el estado actual del robot.',
+    };
+  }
+
+  return {
+    icon: 'robot-off',
+    color: Theme.colors.textMuted,
+    title: 'Robot desconectado',
+    subtitle: 'La pantalla se habilita al conectar un robot.',
+  };
+}
+
 export default function ControlScreen() {
   const {
     status,
@@ -65,6 +101,7 @@ export default function ControlScreen() {
   const isConnected = status.connection_state === 'connected';
   const commandsEnabled = isConnected && commandLoading === null;
   const robotType = status.robot_type ? status.robot_type.toUpperCase() : 'ROBOT';
+  const connectionView = getConnectionView(status, robotType);
 
   const sendMoveRequest = useCallback((vx, vy, vyaw) => {
     const request = moveRobot(vx, vy, vyaw);
@@ -246,21 +283,22 @@ export default function ControlScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={[styles.statusCard, { borderColor: isConnected ? Theme.colors.success : Theme.colors.error }]}>
+      <View style={[styles.statusCard, { borderColor: connectionView.color }]}>
         <View style={styles.statusHeader}>
           <MaterialCommunityIcons
-            name={isConnected ? 'robot' : 'robot-off'}
+            name={connectionView.icon}
             size={32}
-            color={isConnected ? Theme.colors.success : Theme.colors.error}
+            color={connectionView.color}
           />
           <View style={styles.statusInfo}>
-            <Text style={styles.statusTitle}>
-              {isConnected ? `Control activo - ${robotType}` : 'Robot desconectado'}
+            <Text style={[styles.statusTitle, { color: connectionView.color }]}>
+              {connectionView.title}
             </Text>
-            <Text style={styles.statusSubtitle}>
-              {isConnected ? 'Los comandos se envían directamente al backend.' : 'La pantalla se habilita al conectar un robot.'}
-            </Text>
+            <Text style={styles.statusSubtitle}>{connectionView.subtitle}</Text>
           </View>
+          {status.connection_state === 'connecting' && (
+            <ActivityIndicator size="small" color={connectionView.color} />
+          )}
         </View>
       </View>
 
