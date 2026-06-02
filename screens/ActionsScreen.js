@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ActivityIndicator, FlatList } from 'react-native';
 import { Theme } from '../config/theme';
 import { api, getApiErrorMessage } from '../config/api';
+import { addLogEntry } from '../utils/history';
 
 export default function ActionsScreen() {
   const [acciones, setAcciones] = useState([]);
@@ -36,9 +37,11 @@ export default function ActionsScreen() {
         Alert.alert('Aviso', `La acción "${nombreAccion}" no se pudo completar.`);
       }
 
+      await addLogEntry('ACTION', `action=${nombreAccion}`, exito);
       agregarAlHistorial(nombreAccion, exito);
     } catch (error) {
       Alert.alert('Error', getApiErrorMessage(error));
+      await addLogEntry('ACTION', `action=${nombreAccion}, error=${error.message || 'unknown'}`, false);
       agregarAlHistorial(nombreAccion, false);
     }
   };

@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { AuthContext } from './AuthContext';
 import { API_TIMEOUT, getDefaultServerUrl, normalizeServerUrl } from '../config/api';
+import { addLogEntry, getHistoryList } from '../utils/history';
 
 export const RobotContext = createContext(null);
 
@@ -120,9 +121,11 @@ export function RobotProvider({ children }) {
         robot_type: robotType,
         network_interface: iface,
       });
+      await addLogEntry('CONNECT', `robot_type=${robotType}, interface=${iface}`, true);
       await fetchStatus();
       return response.data;
     } catch (err) {
+      await addLogEntry('CONNECT', `robot_type=${robotType}, interface=${iface}, error=${err.message || 'unknown'}`, false);
       console.error('Connection error:', err);
       setStatus((currentStatus) => ({
         ...currentStatus,
@@ -139,9 +142,11 @@ export function RobotProvider({ children }) {
     setLoading(true);
     try {
       const response = await api.post('/disconnect');
+      await addLogEntry('DISCONNECT', '', true);
       await fetchStatus();
       return response.data;
     } catch (err) {
+      await addLogEntry('DISCONNECT', `error=${err.message || 'unknown'}`, false);
       console.error('Disconnection error:', err);
       setStatus((currentStatus) => ({
         ...currentStatus,
@@ -157,8 +162,10 @@ export function RobotProvider({ children }) {
   const moveRobot = useCallback(async (vx, vy, vyaw) => {
     try {
       const response = await api.post('/move', { vx, vy, vyaw });
+      await addLogEntry('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}`, true);
       return response.data;
     } catch (err) {
+      await addLogEntry('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}, error=${err.message || 'unknown'}`, false);
       console.error('Move error:', err);
       throw err;
     }
@@ -167,8 +174,10 @@ export function RobotProvider({ children }) {
   const stopRobot = useCallback(async () => {
     try {
       const response = await api.post('/stop');
+      await addLogEntry('STOP', '', true);
       return response.data;
     } catch (err) {
+      await addLogEntry('STOP', `error=${err.message || 'unknown'}`, false);
       console.error('Stop error:', err);
       throw err;
     }
@@ -177,8 +186,10 @@ export function RobotProvider({ children }) {
   const standUpRobot = useCallback(async () => {
     try {
       const response = await api.post('/standup');
+      await addLogEntry('STANDUP', '', true);
       return response.data;
     } catch (err) {
+      await addLogEntry('STANDUP', `error=${err.message || 'unknown'}`, false);
       console.error('Stand up error:', err);
       throw err;
     }
@@ -187,8 +198,10 @@ export function RobotProvider({ children }) {
   const sitDownRobot = useCallback(async () => {
     try {
       const response = await api.post('/sitdown');
+      await addLogEntry('SITDOWN', '', true);
       return response.data;
     } catch (err) {
+      await addLogEntry('SITDOWN', `error=${err.message || 'unknown'}`, false);
       console.error('Sit down error:', err);
       throw err;
     }
@@ -208,6 +221,7 @@ export function RobotProvider({ children }) {
         standUpRobot,
         sitDownRobot,
         fetchStatus,
+        getHistoryList,
         api,
       }}
     >
