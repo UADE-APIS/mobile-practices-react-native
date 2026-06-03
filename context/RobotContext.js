@@ -24,13 +24,10 @@ function getRobotErrorMessage(err, fallback, serverUrl) {
     return `No se pudo conectar con ${serverUrl}. Verificá la URL de la API y que el backend esté accesible desde el celular.`;
   }
 
-<<<<<<< HEAD
   if (err.code === 'ECONNABORTED' && serverUrl) {
     return `Timeout consultando ${serverUrl}. Revisá si la IP del backend cambió o si el celular está en la misma red.`;
   }
 
-=======
->>>>>>> main
   return err.response?.data?.detail
     || err.response?.data?.error
     || err.message

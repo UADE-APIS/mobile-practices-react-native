@@ -34,7 +34,6 @@ export default function DiagnosticsScreen() {
     await setServerUrl(cleanUrl);
     Alert.alert('API actualizada', `La app va a usar ${cleanUrl}`);
   };
-<<<<<<< HEAD
 
   const handleUseRecommendedUrl = async () => {
     const cleanUrl = normalizeServerUrl(recommendedUrl);
@@ -42,8 +41,6 @@ export default function DiagnosticsScreen() {
     await setServerUrl(cleanUrl);
     Alert.alert('API actualizada', `La app va a usar ${cleanUrl}`);
   };
-=======
->>>>>>> main
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -60,13 +57,10 @@ export default function DiagnosticsScreen() {
         <Text style={styles.sectionTitle}>API del backend</Text>
         <Text style={styles.helperText}>URL actual: {serverUrl}</Text>
         <Text style={styles.helperText}>Sugerida para Expo Go: {recommendedUrl}</Text>
-<<<<<<< HEAD
         <TouchableOpacity testID="use-recommended-api-url" style={styles.recommendedBtn} onPress={handleUseRecommendedUrl}>
           <MaterialCommunityIcons name="cellphone-arrow-down" size={18} color={Theme.colors.text} />
           <Text style={styles.recommendedBtnText}>Usar sugerida</Text>
         </TouchableOpacity>
-=======
->>>>>>> main
 
         <View style={styles.inputRow}>
           <TextInput
@@ -134,7 +128,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 6,
   },
-<<<<<<< HEAD
   recommendedBtn: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -153,8 +146,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-=======
->>>>>>> main
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -66,7 +66,6 @@ describe('DiagnosticsScreen', () => {
       expect(mockSetServerUrl).toHaveBeenCalledWith('http://10.2.2.220:8000');
     });
   });
-<<<<<<< HEAD
 
   it('debe guardar la URL sugerida', async () => {
     const { getByTestId } = renderScreen();
@@ -77,6 +76,4 @@ describe('DiagnosticsScreen', () => {
       expect(mockSetServerUrl).toHaveBeenCalledWith('http://10.2.2.220:8000');
     });
   });
-=======
->>>>>>> main
 });

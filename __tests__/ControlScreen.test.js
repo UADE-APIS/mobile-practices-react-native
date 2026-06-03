@@ -3,10 +3,7 @@ import * as ReactNative from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import ControlScreen, {
-<<<<<<< HEAD
   combineJoystickCommands,
-=======
->>>>>>> main
   getJoystickCommand,
   getMoveJoystickCommand,
   getVectorFromTouch,
@@ -171,7 +168,6 @@ describe('ControlScreen (Control de Movimiento)', () => {
     expect(getYawJoystickCommand(999).vyaw).toBeLessThanOrEqual(1.2);
   });
 
-<<<<<<< HEAD
   it('debe combinar movimiento y direccion sin anular ningun eje', () => {
     const moveCommand = getMoveJoystickCommand(39, -39);
     const yawCommand = getYawJoystickCommand(39);
@@ -195,8 +191,6 @@ describe('ControlScreen (Control de Movimiento)', () => {
     });
   });
 
-=======
->>>>>>> main
   it('debe obtener el vector desde la posicion exacta del dedo', () => {
     const event = {
       nativeEvent: {
@@ -245,7 +239,6 @@ describe('ControlScreen (Control de Movimiento)', () => {
     expect(getByText('Arrastrá dentro del área')).toBeTruthy();
   });
 
-<<<<<<< HEAD
   it('debe permitir usar el joystick vertical para mover la vista', async () => {
     const { getByText, getByTestId } = renderControlScreen();
 
@@ -263,8 +256,6 @@ describe('ControlScreen (Control de Movimiento)', () => {
     });
   });
 
-=======
->>>>>>> main
   it('debe mostrar el control de orientacion horizontal', () => {
     const { getByTestId, getByText, queryByTestId } = renderControlScreen();
 
@@ -317,7 +308,6 @@ describe('ControlScreen (Control de Movimiento)', () => {
 
     expect(getByText('Movimiento')).toBeTruthy();
     expect(getByText('Dirección')).toBeTruthy();
-<<<<<<< HEAD
   });
 
   it('debe combinar los dos joysticks horizontales cuando se usan al mismo tiempo', async () => {
@@ -382,8 +372,6 @@ describe('ControlScreen (Control de Movimiento)', () => {
       expect(mockStopRobot).not.toHaveBeenCalled();
       expect(mockMoveRobot).toHaveBeenLastCalledWith(0, 0, 0.6);
     });
-=======
->>>>>>> main
   });
 
   it('debe enviar comandos de postura', async () => {
