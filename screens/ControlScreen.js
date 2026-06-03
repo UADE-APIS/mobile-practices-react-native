@@ -8,6 +8,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -29,18 +30,63 @@ function roundCommand(value) {
   return Number(value.toFixed(2));
 }
 
-export function getJoystickCommand(x, y, joystickMode) {
-  const normalizedX = x / JOYSTICK_RADIUS;
-  const normalizedY = y / JOYSTICK_RADIUS;
-  const vx = roundCommand(-normalizedY * MAX_LINEAR_SPEED);
-  const vy = joystickMode === 'lateral' ? roundCommand(normalizedX * MAX_LINEAR_SPEED) : 0;
-  const vyaw = joystickMode === 'giro' ? roundCommand(normalizedX * MAX_YAW_SPEED) : 0;
+function safeNumber(value) {
+  return Number.isFinite(value) ? value : 0;
+}
+
+export function normalizeJoystickVector(x, y) {
+  const safeX = safeNumber(x);
+  const safeY = safeNumber(y);
+  const distance = Math.hypot(safeX, safeY);
+
+  if (distance <= JOYSTICK_RADIUS) {
+    return { x: safeX, y: safeY };
+  }
+
+  const scale = JOYSTICK_RADIUS / distance;
+  return {
+    x: safeX * scale,
+    y: safeY * scale,
+  };
+}
+
+export function getVectorFromTouch(event, allowY = true) {
+  const locationX = safeNumber(event?.nativeEvent?.locationX);
+  const locationY = safeNumber(event?.nativeEvent?.locationY);
+  return normalizeJoystickVector(
+    locationX - JOYSTICK_SIZE / 2,
+    allowY ? locationY - JOYSTICK_SIZE / 2 : 0
+  );
+}
+
+export function getMoveJoystickCommand(x, y) {
+  const normalizedVector = normalizeJoystickVector(x, y);
+  const normalizedX = clamp(normalizedVector.x / JOYSTICK_RADIUS, -1, 1);
+  const normalizedY = clamp(normalizedVector.y / JOYSTICK_RADIUS, -1, 1);
+  const vx = roundCommand(clamp(-normalizedY * MAX_LINEAR_SPEED, -MAX_LINEAR_SPEED, MAX_LINEAR_SPEED));
+  const vy = roundCommand(clamp(normalizedX * MAX_LINEAR_SPEED, -MAX_LINEAR_SPEED, MAX_LINEAR_SPEED));
+  const vyaw = 0;
 
   return { vx, vy, vyaw };
 }
 
+export function getYawJoystickCommand(x) {
+  const normalizedVector = normalizeJoystickVector(x, 0);
+  const normalizedX = clamp(normalizedVector.x / JOYSTICK_RADIUS, -1, 1);
+  const vyaw = roundCommand(clamp(normalizedX * MAX_YAW_SPEED, -MAX_YAW_SPEED, MAX_YAW_SPEED));
+
+  return { vx: 0, vy: 0, vyaw };
+}
+
+export function getJoystickCommand(x, y) {
+  return getMoveJoystickCommand(x, y);
+}
+
 function getApiError(err) {
-  return err.response?.data?.detail || err.response?.data?.error || 'No se pudo completar el comando.';
+  return err.robotMessage
+    || err.response?.data?.detail
+    || err.response?.data?.error
+    || 'No se pudo completar el comando.';
 }
 
 function getConnectionView(status, robotType) {
@@ -80,6 +126,7 @@ function getConnectionView(status, robotType) {
 }
 
 export default function ControlScreen() {
+  const { width, height } = useWindowDimensions();
   const {
     status,
     moveRobot,
@@ -91,9 +138,13 @@ export default function ControlScreen() {
   const [commandLoading, setCommandLoading] = useState(null);
   const [currentCommand, setCurrentCommand] = useState(null);
   const [feedback, setFeedback] = useState(null);
-  const [joystickMode, setJoystickMode] = useState('lateral');
+  const [controlMode, setControlMode] = useState('joystick');
+  const [controlLayout, setControlLayout] = useState('vertical');
   const [knobPosition, setKnobPosition] = useState({ x: 0, y: 0 });
+  const [yawKnobPosition, setYawKnobPosition] = useState({ x: 0, y: 0 });
+  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
   const [joystickCommand, setJoystickCommand] = useState({ vx: 0, vy: 0, vyaw: 0 });
+  const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const lastMoveSentAt = useRef(0);
   const latestCommandId = useRef(0);
@@ -102,6 +153,9 @@ export default function ControlScreen() {
   const commandsEnabled = isConnected && commandLoading === null;
   const robotType = status.robot_type ? status.robot_type.toUpperCase() : 'ROBOT';
   const connectionView = getConnectionView(status, robotType);
+  const isDeviceLandscape = width > height;
+  const wantsLandscapeLayout = controlLayout === 'horizontal';
+  const isLandscapeLayout = wantsLandscapeLayout && isDeviceLandscape;
 
   const sendMoveRequest = useCallback((vx, vy, vyaw) => {
     const request = moveRobot(vx, vy, vyaw);
@@ -183,6 +237,8 @@ export default function ControlScreen() {
     await sendStop(true);
     setCommandLoading((current) => current === 'stop' ? null : current);
     setKnobPosition({ x: 0, y: 0 });
+    setYawKnobPosition({ x: 0, y: 0 });
+    setDragPosition({ x: 0, y: 0 });
   };
 
   const handlePosture = async (type) => {
@@ -205,6 +261,8 @@ export default function ControlScreen() {
       setCurrentCommand(null);
       setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
       setKnobPosition({ x: 0, y: 0 });
+      setYawKnobPosition({ x: 0, y: 0 });
+      setDragPosition({ x: 0, y: 0 });
       setFeedback({
         type: 'success',
         message: isStandUp ? 'Comando Pararse enviado correctamente.' : 'Comando Sentarse enviado correctamente.',
@@ -218,13 +276,8 @@ export default function ControlScreen() {
     }
   };
 
-  const buildJoystickCommand = useCallback((x, y) => {
-    return getJoystickCommand(x, y, joystickMode);
-  }, [joystickMode]);
-
-  const sendJoystickMove = useCallback((x, y) => {
+  const sendTouchCommand = useCallback((label, command) => {
     const now = Date.now();
-    const command = buildJoystickCommand(x, y);
     setJoystickCommand(command);
 
     if (!commandsEnabled || now - lastMoveSentAt.current < MOVE_THROTTLE_MS) {
@@ -237,34 +290,113 @@ export default function ControlScreen() {
       .then(() => {
         if (latestCommandId.current !== commandId) return;
 
-        setCurrentCommand({ label: 'Joystick', ...command });
-        setFeedback({ type: 'success', message: 'Control por joystick activo.' });
+        setCurrentCommand({ label, ...command });
+        setFeedback({ type: 'success', message: `Control por ${label.toLowerCase()} activo.` });
       })
       .catch((err) => {
         if (latestCommandId.current === commandId) {
           setFeedback({ type: 'error', message: getApiError(err) });
         }
       });
-  }, [buildJoystickCommand, commandsEnabled, sendMoveRequest]);
+  }, [commandsEnabled, sendMoveRequest]);
+
+  const sendTouchMove = useCallback((label, x, y) => {
+    sendTouchCommand(label, getMoveJoystickCommand(x, y));
+  }, [sendTouchCommand]);
+
+  const sendTouchYaw = useCallback((label, x) => {
+    sendTouchCommand(label, getYawJoystickCommand(x));
+  }, [sendTouchCommand]);
 
   const joystickResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => commandsEnabled,
     onMoveShouldSetPanResponder: () => commandsEnabled,
-    onPanResponderMove: (_, gestureState) => {
-      const x = clamp(gestureState.dx, -JOYSTICK_RADIUS, JOYSTICK_RADIUS);
-      const y = clamp(gestureState.dy, -JOYSTICK_RADIUS, JOYSTICK_RADIUS);
-      setKnobPosition({ x, y });
-      sendJoystickMove(x, y);
+    onPanResponderGrant: (event) => {
+      setScrollEnabled(false);
+      const position = getVectorFromTouch(event);
+      setKnobPosition(position);
+      sendTouchMove('Joystick', position.x, position.y);
+    },
+    onPanResponderMove: (event) => {
+      const position = getVectorFromTouch(event);
+      setKnobPosition(position);
+      sendTouchMove('Joystick', position.x, position.y);
     },
     onPanResponderRelease: () => {
       setKnobPosition({ x: 0, y: 0 });
+      setScrollEnabled(true);
+      lastMoveSentAt.current = 0;
       sendStop(false);
     },
     onPanResponderTerminate: () => {
       setKnobPosition({ x: 0, y: 0 });
+      setScrollEnabled(true);
+      lastMoveSentAt.current = 0;
       sendStop(false);
     },
-  }), [commandsEnabled, sendJoystickMove, sendStop]);
+  }), [commandsEnabled, sendTouchMove, sendStop]);
+
+  const yawResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => commandsEnabled,
+    onMoveShouldSetPanResponder: () => commandsEnabled,
+    onPanResponderGrant: (event) => {
+      setScrollEnabled(false);
+      const position = getVectorFromTouch(event, false);
+      setYawKnobPosition(position);
+      sendTouchYaw('Dirección', position.x);
+    },
+    onPanResponderMove: (event) => {
+      const position = getVectorFromTouch(event, false);
+      setYawKnobPosition(position);
+      sendTouchYaw('Dirección', position.x);
+    },
+    onPanResponderRelease: () => {
+      setYawKnobPosition({ x: 0, y: 0 });
+      setScrollEnabled(true);
+      lastMoveSentAt.current = 0;
+      sendStop(false);
+    },
+    onPanResponderTerminate: () => {
+      setYawKnobPosition({ x: 0, y: 0 });
+      setScrollEnabled(true);
+      lastMoveSentAt.current = 0;
+      sendStop(false);
+    },
+  }), [commandsEnabled, sendTouchYaw, sendStop]);
+
+  const dragResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => commandsEnabled,
+    onMoveShouldSetPanResponder: () => commandsEnabled,
+    onPanResponderGrant: () => {
+      setScrollEnabled(false);
+      setDragPosition({ x: 0, y: 0 });
+    },
+    onPanResponderMove: (_, gestureState) => {
+      const position = normalizeJoystickVector(gestureState.dx, gestureState.dy);
+      setDragPosition(position);
+      sendTouchMove('Arrastre', position.x, position.y);
+    },
+    onPanResponderRelease: () => {
+      setDragPosition({ x: 0, y: 0 });
+      setScrollEnabled(true);
+      lastMoveSentAt.current = 0;
+      sendStop(false);
+    },
+    onPanResponderTerminate: () => {
+      setDragPosition({ x: 0, y: 0 });
+      setScrollEnabled(true);
+      lastMoveSentAt.current = 0;
+      sendStop(false);
+    },
+  }), [commandsEnabled, sendTouchMove, sendStop]);
+
+  const handleControlModeChange = (mode) => {
+    setControlMode(mode);
+    setKnobPosition({ x: 0, y: 0 });
+    setYawKnobPosition({ x: 0, y: 0 });
+    setDragPosition({ x: 0, y: 0 });
+    setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
+  };
 
   const renderCommandButton = (label, icon, vx, vy, vyaw, style) => (
     <TouchableOpacity
@@ -282,7 +414,11 @@ export default function ControlScreen() {
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, isLandscapeLayout && styles.contentLandscape]}
+      scrollEnabled={scrollEnabled}
+    >
       <View style={[styles.statusCard, { borderColor: connectionView.color }]}>
         <View style={styles.statusHeader}>
           <MaterialCommunityIcons
@@ -302,129 +438,233 @@ export default function ControlScreen() {
         </View>
       </View>
 
-      <View style={styles.panelCard}>
-        <Text style={styles.panelTitle}>Controles Direccionales</Text>
-        <Text style={styles.panelSubtitle}>Cada dirección mantiene el movimiento hasta presionar Detener.</Text>
+      <View style={[styles.controlsLayout, isLandscapeLayout && styles.controlsLayoutLandscape]}>
+        <View style={styles.controlsColumn}>
+          <View style={styles.panelCard}>
+            <Text style={styles.panelTitle}>Controles Direccionales</Text>
+            <Text style={styles.panelSubtitle}>Cada dirección mantiene el movimiento hasta presionar Detener.</Text>
 
-        <View style={styles.dPad}>
-          <View style={styles.dPadRow}>
-            <View style={styles.emptySpace} />
-            {renderCommandButton('Adelante', 'arrow-up-bold', MAX_LINEAR_SPEED, 0, 0)}
-            <View style={styles.emptySpace} />
+            <View style={styles.dPad}>
+              <View style={styles.dPadRow}>
+                <View style={styles.emptySpace} />
+                {renderCommandButton('Adelante', 'arrow-up-bold', MAX_LINEAR_SPEED, 0, 0)}
+                <View style={styles.emptySpace} />
+              </View>
+              <View style={styles.dPadRow}>
+                {renderCommandButton('Izquierda', 'arrow-left-bold', 0, MAX_LINEAR_SPEED, 0)}
+                <TouchableOpacity
+                  style={[styles.stopButton, !isConnected && styles.disabledButton]}
+                  disabled={!isConnected}
+                  onPress={handleStop}
+                >
+                  {commandLoading === 'stop' ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <MaterialCommunityIcons name="stop" size={32} color="#FFFFFF" />
+                  )}
+                  <Text style={styles.stopText}>Detener</Text>
+                </TouchableOpacity>
+                {renderCommandButton('Derecha', 'arrow-right-bold', 0, -MAX_LINEAR_SPEED, 0)}
+              </View>
+              <View style={styles.dPadRow}>
+                <View style={styles.emptySpace} />
+                {renderCommandButton('Atrás', 'arrow-down-bold', -MAX_LINEAR_SPEED, 0, 0)}
+                <View style={styles.emptySpace} />
+              </View>
+            </View>
           </View>
-          <View style={styles.dPadRow}>
-            {renderCommandButton('Izquierda', 'arrow-left-bold', 0, MAX_LINEAR_SPEED, 0)}
-            <TouchableOpacity
-              style={[styles.stopButton, !isConnected && styles.disabledButton]}
-              disabled={!isConnected}
-              onPress={handleStop}
-            >
-              {commandLoading === 'stop' ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <MaterialCommunityIcons name="stop" size={32} color="#FFFFFF" />
-              )}
-              <Text style={styles.stopText}>Detener</Text>
-            </TouchableOpacity>
-            {renderCommandButton('Derecha', 'arrow-right-bold', 0, -MAX_LINEAR_SPEED, 0)}
-          </View>
-          <View style={styles.dPadRow}>
-            <View style={styles.emptySpace} />
-            {renderCommandButton('Atrás', 'arrow-down-bold', -MAX_LINEAR_SPEED, 0, 0)}
-            <View style={styles.emptySpace} />
-          </View>
-        </View>
-      </View>
 
-      <View style={styles.panelCard}>
-        <Text style={styles.panelTitle}>Postura</Text>
-        <View style={styles.postureRow}>
-          <TouchableOpacity
-            style={[styles.postureButton, !isConnected && styles.disabledButton]}
-            disabled={!isConnected || commandLoading !== null}
-            onPress={() => handlePosture('standup')}
-          >
-            {commandLoading === 'standup' ? (
-              <ActivityIndicator size="small" color={Theme.colors.text} />
-            ) : (
-              <MaterialCommunityIcons name="arrow-up-bold-box" size={28} color={Theme.colors.success} />
-            )}
-            <Text style={styles.postureText}>Pararse</Text>
-          </TouchableOpacity>
+          <View style={styles.panelCard}>
+            <Text style={styles.panelTitle}>Postura</Text>
+            <View style={styles.postureRow}>
+              <TouchableOpacity
+                style={[styles.postureButton, !isConnected && styles.disabledButton]}
+                disabled={!isConnected || commandLoading !== null}
+                onPress={() => handlePosture('standup')}
+              >
+                {commandLoading === 'standup' ? (
+                  <ActivityIndicator size="small" color={Theme.colors.text} />
+                ) : (
+                  <MaterialCommunityIcons name="arrow-up-bold-box" size={28} color={Theme.colors.success} />
+                )}
+                <Text style={styles.postureText}>Pararse</Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.postureButton, !isConnected && styles.disabledButton]}
-            disabled={!isConnected || commandLoading !== null}
-            onPress={() => handlePosture('sitdown')}
-          >
-            {commandLoading === 'sitdown' ? (
-              <ActivityIndicator size="small" color={Theme.colors.text} />
-            ) : (
-              <MaterialCommunityIcons name="arrow-down-bold-box" size={28} color={Theme.colors.warning} />
-            )}
-            <Text style={styles.postureText}>Sentarse</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={styles.panelCard}>
-        <View style={styles.joystickHeader}>
-          <View>
-            <Text style={styles.panelTitle}>Joystick Virtual</Text>
-            <Text style={styles.panelSubtitle}>Soltar el joystick envía Detener.</Text>
-          </View>
-          <View style={styles.modeSwitch}>
-            <TouchableOpacity
-              style={[styles.modeButton, joystickMode === 'lateral' && styles.modeButtonActive]}
-              onPress={() => setJoystickMode('lateral')}
-            >
-              <Text style={[styles.modeText, joystickMode === 'lateral' && styles.modeTextActive]}>Lateral</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeButton, joystickMode === 'giro' && styles.modeButtonActive]}
-              onPress={() => setJoystickMode('giro')}
-            >
-              <Text style={[styles.modeText, joystickMode === 'giro' && styles.modeTextActive]}>Giro</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.joystickContainer}>
-          <View
-            testID="joystick-base"
-            style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
-            {...joystickResponder.panHandlers}
-          >
-            <View style={styles.joystickCrossVertical} />
-            <View style={styles.joystickCrossHorizontal} />
-            <View
-              style={[
-                styles.joystickKnob,
-                {
-                  transform: [
-                    { translateX: knobPosition.x },
-                    { translateY: knobPosition.y },
-                  ],
-                },
-              ]}
-            >
-              <MaterialCommunityIcons name="gamepad-circle" size={28} color={Theme.colors.text} />
+              <TouchableOpacity
+                style={[styles.postureButton, !isConnected && styles.disabledButton]}
+                disabled={!isConnected || commandLoading !== null}
+                onPress={() => handlePosture('sitdown')}
+              >
+                {commandLoading === 'sitdown' ? (
+                  <ActivityIndicator size="small" color={Theme.colors.text} />
+                ) : (
+                  <MaterialCommunityIcons name="arrow-down-bold-box" size={28} color={Theme.colors.warning} />
+                )}
+                <Text style={styles.postureText}>Sentarse</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        <View style={styles.valuesRow}>
-          <View style={styles.valuePill}>
-            <Text style={styles.valueLabel}>vx</Text>
-            <Text style={styles.valueText}>{joystickCommand.vx}</Text>
-          </View>
-          <View style={styles.valuePill}>
-            <Text style={styles.valueLabel}>vy</Text>
-            <Text style={styles.valueText}>{joystickCommand.vy}</Text>
-          </View>
-          <View style={styles.valuePill}>
-            <Text style={styles.valueLabel}>vyaw</Text>
-            <Text style={styles.valueText}>{joystickCommand.vyaw}</Text>
+        <View style={styles.controlsColumn}>
+          <View style={styles.panelCard}>
+            <View style={styles.joystickHeader}>
+              <View style={styles.headerText}>
+                <Text style={styles.panelTitle}>Control táctil</Text>
+                <Text style={styles.panelSubtitle}>Soltar el control envía Detener.</Text>
+              </View>
+              <TouchableOpacity
+                testID="orientation-toggle"
+                style={[styles.orientationButton, wantsLandscapeLayout && styles.orientationButtonActive]}
+                onPress={() => setControlLayout((layout) => layout === 'vertical' ? 'horizontal' : 'vertical')}
+              >
+                <MaterialCommunityIcons
+                  name={isLandscapeLayout ? 'phone-rotate-portrait' : 'phone-rotate-landscape'}
+                  size={18}
+                  color={Theme.colors.text}
+                />
+                <Text style={styles.orientationButtonText}>
+                  {isLandscapeLayout ? 'Vertical' : 'Poner horizontal'}
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.modeSwitch}>
+                <TouchableOpacity
+                  style={[styles.modeButton, controlMode === 'joystick' && styles.modeButtonActive]}
+                  onPress={() => handleControlModeChange('joystick')}
+                >
+                  <Text style={[styles.modeText, controlMode === 'joystick' && styles.modeTextActive]}>Joystick</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modeButton, controlMode === 'drag' && styles.modeButtonActive]}
+                  onPress={() => handleControlModeChange('drag')}
+                >
+                  <Text style={[styles.modeText, controlMode === 'drag' && styles.modeTextActive]}>Arrastre</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {wantsLandscapeLayout && !isDeviceLandscape && (
+              <View style={styles.orientationHint}>
+                <Text style={styles.orientationHintText}>Poné el celular en horizontal para ver los dos joysticks.</Text>
+              </View>
+            )}
+
+            {isLandscapeLayout ? (
+              <View style={styles.dualJoystickRow}>
+                <View style={styles.dualJoystickColumn}>
+                  <Text style={styles.joystickLabel}>Movimiento</Text>
+                  <View
+                    testID="move-joystick-base"
+                    style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
+                    {...joystickResponder.panHandlers}
+                  >
+                    <View pointerEvents="none" style={styles.joystickCrossVertical} />
+                    <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.joystickKnob,
+                        {
+                          transform: [
+                            { translateX: knobPosition.x },
+                            { translateY: knobPosition.y },
+                          ],
+                        },
+                      ]}
+                    >
+                      <MaterialCommunityIcons name="arrow-all" size={28} color={Theme.colors.text} />
+                    </View>
+                  </View>
+                </View>
+                <View style={styles.dualJoystickColumn}>
+                  <Text style={styles.joystickLabel}>Dirección</Text>
+                  <View
+                    testID="yaw-joystick-base"
+                    style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
+                    {...yawResponder.panHandlers}
+                  >
+                    <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.joystickKnob,
+                        styles.yawJoystickKnob,
+                        {
+                          transform: [
+                            { translateX: yawKnobPosition.x },
+                            { translateY: 0 },
+                          ],
+                        },
+                      ]}
+                    >
+                      <MaterialCommunityIcons name="rotate-360" size={28} color={Theme.colors.text} />
+                    </View>
+                  </View>
+                </View>
+              </View>
+            ) : controlMode === 'joystick' ? (
+              <View style={styles.joystickContainer}>
+                <View
+                  testID="joystick-base"
+                  style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
+                  {...joystickResponder.panHandlers}
+                >
+                  <View pointerEvents="none" style={styles.joystickCrossVertical} />
+                  <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.joystickKnob,
+                      {
+                        transform: [
+                          { translateX: knobPosition.x },
+                          { translateY: knobPosition.y },
+                        ],
+                      },
+                    ]}
+                  >
+                    <MaterialCommunityIcons name="arrow-all" size={28} color={Theme.colors.text} />
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View
+                testID="drag-control-area"
+                style={[styles.dragArea, !isConnected && styles.disabledJoystick]}
+                {...dragResponder.panHandlers}
+              >
+                <View pointerEvents="none" style={styles.dragCrossVertical} />
+                <View pointerEvents="none" style={styles.dragCrossHorizontal} />
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.dragIndicator,
+                    {
+                      transform: [
+                        { translateX: dragPosition.x },
+                        { translateY: dragPosition.y },
+                      ],
+                    },
+                  ]}
+                />
+                <Text style={styles.dragText}>Arrastrá dentro del área</Text>
+              </View>
+            )}
+
+            <View style={styles.valuesRow}>
+              <View style={styles.valuePill}>
+                <Text style={styles.valueLabel}>vx</Text>
+                <Text style={styles.valueText}>{joystickCommand.vx}</Text>
+              </View>
+              <View style={styles.valuePill}>
+                <Text style={styles.valueLabel}>vy</Text>
+                <Text style={styles.valueText}>{joystickCommand.vy}</Text>
+              </View>
+              <View style={styles.valuePill}>
+                <Text style={styles.valueLabel}>vyaw</Text>
+                <Text style={styles.valueText}>{joystickCommand.vyaw}</Text>
+              </View>
+            </View>
           </View>
         </View>
       </View>
@@ -464,6 +704,21 @@ const styles = StyleSheet.create({
   content: {
     padding: Theme.spacing.md,
     gap: Theme.spacing.md,
+  },
+  contentLandscape: {
+    paddingHorizontal: Theme.spacing.lg,
+  },
+  controlsLayout: {
+    gap: Theme.spacing.md,
+  },
+  controlsLayoutLandscape: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  controlsColumn: {
+    flex: 1,
+    gap: Theme.spacing.md,
+    alignSelf: 'stretch',
   },
   statusCard: {
     backgroundColor: Theme.colors.card,
@@ -577,7 +832,32 @@ const styles = StyleSheet.create({
   joystickHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
     gap: 12,
+  },
+  headerText: {
+    flex: 1,
+  },
+  orientationButton: {
+    minWidth: 118,
+    height: 36,
+    borderRadius: Theme.borderRadius.sm,
+    backgroundColor: Theme.colors.background,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  orientationButtonActive: {
+    borderColor: Theme.colors.accent,
+  },
+  orientationButtonText: {
+    color: Theme.colors.text,
+    fontSize: 11,
+    fontWeight: '700',
   },
   modeSwitch: {
     flexDirection: 'row',
@@ -604,9 +884,39 @@ const styles = StyleSheet.create({
   modeTextActive: {
     color: '#FFFFFF',
   },
+  orientationHint: {
+    backgroundColor: Theme.colors.background,
+    borderRadius: Theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  orientationHintText: {
+    color: Theme.colors.textMuted,
+    fontSize: 12,
+  },
   joystickContainer: {
     alignItems: 'center',
     marginTop: 8,
+  },
+  dualJoystickRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-start',
+    gap: Theme.spacing.md,
+  },
+  dualJoystickColumn: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  joystickLabel: {
+    color: Theme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+    textTransform: 'uppercase',
   },
   joystickBase: {
     width: JOYSTICK_SIZE,
@@ -646,6 +956,44 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 4,
+  },
+  yawJoystickKnob: {
+    backgroundColor: Theme.colors.info,
+    shadowColor: Theme.colors.info,
+  },
+  dragArea: {
+    height: JOYSTICK_SIZE,
+    borderRadius: Theme.borderRadius.md,
+    backgroundColor: Theme.colors.background,
+    borderWidth: 2,
+    borderColor: Theme.colors.border,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  dragCrossVertical: {
+    position: 'absolute',
+    width: 1,
+    height: '100%',
+    backgroundColor: Theme.colors.border,
+  },
+  dragCrossHorizontal: {
+    position: 'absolute',
+    width: '100%',
+    height: 1,
+    backgroundColor: Theme.colors.border,
+  },
+  dragIndicator: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Theme.colors.accent,
+  },
+  dragText: {
+    color: Theme.colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
   },
   valuesRow: {
     flexDirection: 'row',

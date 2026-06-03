@@ -1,5 +1,26 @@
 import * as SecureStore from 'expo-secure-store';
 
+const MAX_HISTORY_ITEMS = 20;
+const MAX_HISTORY_BYTES = 1900;
+const MAX_DETAIL_LENGTH = 120;
+
+function trimDetails(details) {
+  const value = details || '';
+  if (value.length <= MAX_DETAIL_LENGTH) {
+    return value;
+  }
+
+  return `${value.slice(0, MAX_DETAIL_LENGTH - 3)}...`;
+}
+
+function compactHistory(list) {
+  let compacted = list.slice(0, MAX_HISTORY_ITEMS);
+  while (JSON.stringify(compacted).length > MAX_HISTORY_BYTES && compacted.length > 1) {
+    compacted = compacted.slice(0, -1);
+  }
+  return compacted;
+}
+
 export async function addLogEntry(commandType, details, success) {
   try {
     const username = await SecureStore.getItemAsync('identifier');
@@ -11,14 +32,12 @@ export async function addLogEntry(commandType, details, success) {
     const newEntry = {
       timestamp: new Date().toISOString(),
       command_type: commandType,
-      details: details || '',
+      details: trimDetails(details),
       success: success,
     };
 
     list.unshift(newEntry);
-    if (list.length > 50) {
-      list = list.slice(0, 50);
-    }
+    list = compactHistory(list);
     await SecureStore.setItemAsync(key, JSON.stringify(list));
   } catch (e) {
     console.warn('Failed to add log entry:', e);

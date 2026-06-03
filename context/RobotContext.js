@@ -15,7 +15,15 @@ const DEFAULT_STATUS = {
   last_error: null,
 };
 
-function getRobotErrorMessage(err, fallback) {
+function getRobotErrorMessage(err, fallback, serverUrl) {
+  if (err.robotMessage) {
+    return err.robotMessage;
+  }
+
+  if (err.message === 'Network Error' && serverUrl) {
+    return `No se pudo conectar con ${serverUrl}. Verificá la URL de la API y que el backend esté accesible desde el celular.`;
+  }
+
   return err.response?.data?.detail
     || err.response?.data?.error
     || err.message
@@ -90,11 +98,11 @@ export function RobotProvider({ children }) {
         setStatus((currentStatus) => ({
           ...currentStatus,
           connection_state: 'error',
-          last_error: getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.'),
+          last_error: getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.', serverUrl),
         }));
       }
     }
-  }, [api, user, logout]);
+  }, [api, user, logout, serverUrl]);
 
   // Poll status periodically when user is logged in
   useEffect(() => {
@@ -125,18 +133,20 @@ export function RobotProvider({ children }) {
       await fetchStatus();
       return response.data;
     } catch (err) {
-      await addLogEntry('CONNECT', `robot_type=${robotType}, interface=${iface}, error=${err.message || 'unknown'}`, false);
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo establecer la conexión con el robot.', serverUrl);
+      err.robotMessage = errorMessage;
+      await addLogEntry('CONNECT', `robot_type=${robotType}, interface=${iface}, error=${errorMessage}`, false);
       console.error('Connection error:', err);
       setStatus((currentStatus) => ({
         ...currentStatus,
         connection_state: 'error',
-        last_error: getRobotErrorMessage(err, 'No se pudo establecer la conexión con el robot.'),
+        last_error: errorMessage,
       }));
       throw err;
     } finally {
       setLoading(false);
     }
-  }, [api, fetchStatus]);
+  }, [api, fetchStatus, serverUrl]);
 
   const disconnectRobot = useCallback(async () => {
     setLoading(true);
@@ -146,18 +156,20 @@ export function RobotProvider({ children }) {
       await fetchStatus();
       return response.data;
     } catch (err) {
-      await addLogEntry('DISCONNECT', `error=${err.message || 'unknown'}`, false);
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo desconectar el robot.', serverUrl);
+      err.robotMessage = errorMessage;
+      await addLogEntry('DISCONNECT', `error=${errorMessage}`, false);
       console.error('Disconnection error:', err);
       setStatus((currentStatus) => ({
         ...currentStatus,
         connection_state: 'error',
-        last_error: getRobotErrorMessage(err, 'No se pudo desconectar el robot.'),
+        last_error: errorMessage,
       }));
       throw err;
     } finally {
       setLoading(false);
     }
-  }, [api, fetchStatus]);
+  }, [api, fetchStatus, serverUrl]);
 
   const moveRobot = useCallback(async (vx, vy, vyaw) => {
     try {
@@ -165,11 +177,13 @@ export function RobotProvider({ children }) {
       await addLogEntry('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}`, true);
       return response.data;
     } catch (err) {
-      await addLogEntry('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}, error=${err.message || 'unknown'}`, false);
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo enviar el movimiento.', serverUrl);
+      err.robotMessage = errorMessage;
+      await addLogEntry('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}, error=${errorMessage}`, false);
       console.error('Move error:', err);
       throw err;
     }
-  }, [api]);
+  }, [api, serverUrl]);
 
   const stopRobot = useCallback(async () => {
     try {
@@ -177,11 +191,13 @@ export function RobotProvider({ children }) {
       await addLogEntry('STOP', '', true);
       return response.data;
     } catch (err) {
-      await addLogEntry('STOP', `error=${err.message || 'unknown'}`, false);
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo detener el robot.', serverUrl);
+      err.robotMessage = errorMessage;
+      await addLogEntry('STOP', `error=${errorMessage}`, false);
       console.error('Stop error:', err);
       throw err;
     }
-  }, [api]);
+  }, [api, serverUrl]);
 
   const standUpRobot = useCallback(async () => {
     try {
@@ -189,11 +205,13 @@ export function RobotProvider({ children }) {
       await addLogEntry('STANDUP', '', true);
       return response.data;
     } catch (err) {
-      await addLogEntry('STANDUP', `error=${err.message || 'unknown'}`, false);
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo enviar el comando Pararse.', serverUrl);
+      err.robotMessage = errorMessage;
+      await addLogEntry('STANDUP', `error=${errorMessage}`, false);
       console.error('Stand up error:', err);
       throw err;
     }
-  }, [api]);
+  }, [api, serverUrl]);
 
   const sitDownRobot = useCallback(async () => {
     try {
@@ -201,11 +219,13 @@ export function RobotProvider({ children }) {
       await addLogEntry('SITDOWN', '', true);
       return response.data;
     } catch (err) {
-      await addLogEntry('SITDOWN', `error=${err.message || 'unknown'}`, false);
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo enviar el comando Sentarse.', serverUrl);
+      err.robotMessage = errorMessage;
+      await addLogEntry('SITDOWN', `error=${errorMessage}`, false);
       console.error('Sit down error:', err);
       throw err;
     }
-  }, [api]);
+  }, [api, serverUrl]);
 
   return (
     <RobotContext.Provider
