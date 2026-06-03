@@ -2,46 +2,48 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ActionsScreen from '../screens/ActionsScreen';
-import { api } from '../config/api';
+import { RobotContext } from '../context/RobotContext';
 
-// Mock de las llamadas HTTP
-jest.mock('../config/api', () => ({
-  api: {
-    get: jest.fn(),
-    post: jest.fn(),
-  },
-  getApiErrorMessage: jest.fn(),
-}));
+const mockApi = {
+  get: jest.fn(),
+  post: jest.fn(),
+};
 
 describe('ActionsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    // Evita que los test se frenen tratando de renderizar un Alert nativo
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   });
 
+  const renderActionsScreen = () => {
+    return render(
+      <RobotContext.Provider value={{ api: mockApi }}>
+        <ActionsScreen />
+      </RobotContext.Provider>
+    );
+  };
+
   test('carga y dibuja la lista de acciones obtenida de la API', async () => {
-    api.get.mockResolvedValueOnce({ data: { actions: ['stand', 'sit'] } });
+    mockApi.get.mockResolvedValueOnce({ data: { actions: ['stand', 'sit'] } });
 
-    const { findByText } = render(<ActionsScreen />);
+    const { findByText } = renderActionsScreen();
 
-    // findByText espera asíncronamente hasta que el elemento aparece en el DOM
     expect(await findByText('stand')).toBeTruthy();
     expect(await findByText('sit')).toBeTruthy();
-    expect(api.get).toHaveBeenCalledWith('/actions');
+    expect(mockApi.get).toHaveBeenCalledWith('/actions');
   });
 
   test('llama a la función ejecutora al presionar un botón', async () => {
-    api.get.mockResolvedValueOnce({ data: { actions: ['dance'] } });
-    api.post.mockResolvedValueOnce({ data: { success: true } });
+    mockApi.get.mockResolvedValueOnce({ data: { actions: ['dance'] } });
+    mockApi.post.mockResolvedValueOnce({ data: { success: true } });
 
-    const { findByText } = render(<ActionsScreen />);
+    const { findByText } = renderActionsScreen();
 
     const boton = await findByText('dance');
     fireEvent.press(boton);
 
     await waitFor(() => {
-      expect(api.post).toHaveBeenCalledWith('/action/dance');
+      expect(mockApi.post).toHaveBeenCalledWith('/action/dance');
     });
   });
 });

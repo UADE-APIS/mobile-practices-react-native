@@ -62,7 +62,7 @@ export function RobotProvider({ children }) {
       }
     };
     loadConfig();
-  }, []);
+  }, [user]);
 
   const setServerUrl = useCallback(async (url) => {
     try {
