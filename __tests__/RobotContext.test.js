@@ -104,6 +104,7 @@ describe('RobotContext', () => {
     unmount();
     console.error.mockRestore();
   });
+<<<<<<< HEAD
 
   it('debe incluir la URL de API en errores de timeout', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -144,4 +145,6 @@ describe('RobotContext', () => {
     unmount();
     console.error.mockRestore();
   });
+=======
+>>>>>>> main
 });

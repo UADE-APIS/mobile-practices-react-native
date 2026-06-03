@@ -25,7 +25,11 @@ export function getDefaultServerUrl() {
 }
 
 export function normalizeServerUrl(url) {
-  return url.trim().replace(/\/+$/, '');
+  let cleanUrl = url.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(cleanUrl)) {
+    cleanUrl = `http://${cleanUrl}`;
+  }
+  return cleanUrl;
 }
 
 export function withTimeout(promise, message) {
