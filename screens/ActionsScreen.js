@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react'; 
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ActivityIndicator, FlatList } from 'react-native';
 import { Theme } from '../config/theme';
-import { api, getApiErrorMessage } from '../config/api';
+import { getApiErrorMessage } from '../config/api'; 
+import { RobotContext } from '../context/RobotContext'; 
 import { addLogEntry } from '../utils/history';
 
 export default function ActionsScreen() {
+  const { api } = useContext(RobotContext); 
+  
   const [acciones, setAcciones] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [historialLocal, setHistorialLocal] = useState([]);
@@ -16,7 +19,6 @@ export default function ActionsScreen() {
   const fetchAcciones = async () => {
     try {
       const response = await api.get('/actions');
-      // El endpoint devuelve { robot_type: "...", actions: ["stand", "sit", ...] }
       setAcciones(response.data.actions);
     } catch (error) {
       Alert.alert('Error de red', getApiErrorMessage(error));
@@ -30,7 +32,6 @@ export default function ActionsScreen() {
       const response = await api.post(`/action/${nombreAccion}`);
       const exito = response.data.success;
       
-      // Feedback visual
       if (exito) {
         Alert.alert('Éxito', `La acción "${nombreAccion}" se ejecutó correctamente.`);
       } else {
@@ -53,11 +54,9 @@ export default function ActionsScreen() {
       exito: exito,
       timestamp: new Date().toLocaleTimeString(),
     };
-    // Guardamos inyectando al principio del arreglo
     setHistorialLocal(prev => [nuevoRegistro, ...prev]);
   };
 
-  // Pantalla de carga mientras resuelve el GET inicial
   if (cargando) {
     return (
       <View style={styles.containerCentro}>
@@ -71,7 +70,6 @@ export default function ActionsScreen() {
     <View style={styles.container}>
       <Text style={styles.text}>Acciones Disponibles</Text>
       
-      {/* Grilla de botones */}
       <View style={styles.grilla}>
         {acciones.map(accion => (
           <TouchableOpacity 
@@ -84,7 +82,6 @@ export default function ActionsScreen() {
         ))}
       </View>
 
-      {/* Historial de la sesión actual */}
       <View style={styles.historialContainer}>
         <Text style={styles.historialTitulo}>Historial de comandos (sesión)</Text>
         <FlatList
