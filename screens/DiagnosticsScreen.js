@@ -35,6 +35,13 @@ export default function DiagnosticsScreen() {
     Alert.alert('API actualizada', `La app va a usar ${cleanUrl}`);
   };
 
+  const handleUseRecommendedUrl = async () => {
+    const cleanUrl = normalizeServerUrl(recommendedUrl);
+    setApiUrl(cleanUrl);
+    await setServerUrl(cleanUrl);
+    Alert.alert('API actualizada', `La app va a usar ${cleanUrl}`);
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
@@ -50,6 +57,10 @@ export default function DiagnosticsScreen() {
         <Text style={styles.sectionTitle}>API del backend</Text>
         <Text style={styles.helperText}>URL actual: {serverUrl}</Text>
         <Text style={styles.helperText}>Sugerida para Expo Go: {recommendedUrl}</Text>
+        <TouchableOpacity testID="use-recommended-api-url" style={styles.recommendedBtn} onPress={handleUseRecommendedUrl}>
+          <MaterialCommunityIcons name="cellphone-arrow-down" size={18} color={Theme.colors.text} />
+          <Text style={styles.recommendedBtnText}>Usar sugerida</Text>
+        </TouchableOpacity>
 
         <View style={styles.inputRow}>
           <TextInput
@@ -116,6 +127,24 @@ const styles = StyleSheet.create({
     color: Theme.colors.textMuted,
     fontSize: 12,
     marginBottom: 6,
+  },
+  recommendedBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Theme.colors.background,
+    borderRadius: Theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  recommendedBtnText: {
+    color: Theme.colors.text,
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputRow: {
     flexDirection: 'row',

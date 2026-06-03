@@ -82,6 +82,45 @@ export function getJoystickCommand(x, y) {
   return getMoveJoystickCommand(x, y);
 }
 
+export function combineJoystickCommands(moveCommand = {}, yawCommand = {}) {
+  return {
+    vx: roundCommand(clamp(safeNumber(moveCommand.vx), -MAX_LINEAR_SPEED, MAX_LINEAR_SPEED)),
+    vy: roundCommand(clamp(safeNumber(moveCommand.vy), -MAX_LINEAR_SPEED, MAX_LINEAR_SPEED)),
+    vyaw: roundCommand(clamp(safeNumber(yawCommand.vyaw), -MAX_YAW_SPEED, MAX_YAW_SPEED)),
+  };
+}
+
+function getTouchIdentifier(nativeEvent) {
+  return nativeEvent?.identifier ?? nativeEvent?.target ?? 'touch';
+}
+
+function getTouchFromEvent(event, activeTouchId) {
+  const nativeEvent = event?.nativeEvent;
+  const changedTouches = nativeEvent?.changedTouches || [];
+
+  return changedTouches.find((touch) => getTouchIdentifier(touch) === activeTouchId) || nativeEvent || {};
+}
+
+function hasChangedTouch(event, activeTouchId) {
+  const nativeEvent = event?.nativeEvent;
+  const changedTouches = nativeEvent?.changedTouches || [];
+
+  if (changedTouches.length === 0) {
+    return true;
+  }
+
+  return changedTouches.some((touch) => getTouchIdentifier(touch) === activeTouchId);
+}
+
+function getVectorFromNativeTouch(nativeEvent, allowY = true) {
+  const locationX = safeNumber(nativeEvent?.locationX);
+  const locationY = safeNumber(nativeEvent?.locationY);
+  return normalizeJoystickVector(
+    locationX - JOYSTICK_SIZE / 2,
+    allowY ? locationY - JOYSTICK_SIZE / 2 : 0
+  );
+}
+
 function getApiError(err) {
   return err.robotMessage
     || err.response?.data?.detail
@@ -139,6 +178,7 @@ export default function ControlScreen() {
   const [currentCommand, setCurrentCommand] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [controlMode, setControlMode] = useState('joystick');
+  const [verticalJoystickMode, setVerticalJoystickMode] = useState('move');
   const [controlLayout, setControlLayout] = useState('vertical');
   const [knobPosition, setKnobPosition] = useState({ x: 0, y: 0 });
   const [yawKnobPosition, setYawKnobPosition] = useState({ x: 0, y: 0 });
@@ -149,6 +189,10 @@ export default function ControlScreen() {
   const lastMoveSentAt = useRef(0);
   const latestCommandId = useRef(0);
   const pendingMoveRequests = useRef(new Set());
+  const activeMoveTouchId = useRef(null);
+  const activeYawTouchId = useRef(null);
+  const activeMoveCommand = useRef({ vx: 0, vy: 0, vyaw: 0 });
+  const activeYawCommand = useRef({ vx: 0, vy: 0, vyaw: 0 });
   const isConnected = status.connection_state === 'connected';
   const commandsEnabled = isConnected && commandLoading === null;
   const robotType = status.robot_type ? status.robot_type.toUpperCase() : 'ROBOT';
@@ -184,6 +228,10 @@ export default function ControlScreen() {
 
       setCurrentCommand(null);
       setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
+      activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      activeMoveTouchId.current = null;
+      activeYawTouchId.current = null;
       if (showFeedback) {
         setFeedback({ type: 'success', message: 'Robot detenido correctamente.' });
       }
@@ -239,6 +287,10 @@ export default function ControlScreen() {
     setKnobPosition({ x: 0, y: 0 });
     setYawKnobPosition({ x: 0, y: 0 });
     setDragPosition({ x: 0, y: 0 });
+    activeMoveTouchId.current = null;
+    activeYawTouchId.current = null;
+    activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+    activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
   };
 
   const handlePosture = async (type) => {
@@ -260,6 +312,10 @@ export default function ControlScreen() {
 
       setCurrentCommand(null);
       setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
+      activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      activeMoveTouchId.current = null;
+      activeYawTouchId.current = null;
       setKnobPosition({ x: 0, y: 0 });
       setYawKnobPosition({ x: 0, y: 0 });
       setDragPosition({ x: 0, y: 0 });
@@ -304,65 +360,88 @@ export default function ControlScreen() {
     sendTouchCommand(label, getMoveJoystickCommand(x, y));
   }, [sendTouchCommand]);
 
-  const sendTouchYaw = useCallback((label, x) => {
-    sendTouchCommand(label, getYawJoystickCommand(x));
+  const hasActiveJoystickTouch = useCallback(() => (
+    activeMoveTouchId.current !== null || activeYawTouchId.current !== null
+  ), []);
+
+  const sendCombinedJoystickCommand = useCallback((label) => {
+    const command = combineJoystickCommands(activeMoveCommand.current, activeYawCommand.current);
+    sendTouchCommand(label, command);
   }, [sendTouchCommand]);
 
-  const joystickResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => commandsEnabled,
-    onMoveShouldSetPanResponder: () => commandsEnabled,
-    onPanResponderGrant: (event) => {
-      setScrollEnabled(false);
-      const position = getVectorFromTouch(event);
-      setKnobPosition(position);
-      sendTouchMove('Joystick', position.x, position.y);
-    },
-    onPanResponderMove: (event) => {
-      const position = getVectorFromTouch(event);
-      setKnobPosition(position);
-      sendTouchMove('Joystick', position.x, position.y);
-    },
-    onPanResponderRelease: () => {
-      setKnobPosition({ x: 0, y: 0 });
-      setScrollEnabled(true);
-      lastMoveSentAt.current = 0;
-      sendStop(false);
-    },
-    onPanResponderTerminate: () => {
-      setKnobPosition({ x: 0, y: 0 });
-      setScrollEnabled(true);
-      lastMoveSentAt.current = 0;
-      sendStop(false);
-    },
-  }), [commandsEnabled, sendTouchMove, sendStop]);
+  const releaseJoystickTouch = useCallback((type, event) => {
+    const isMoveTouch = type === 'move';
+    const activeTouchId = isMoveTouch ? activeMoveTouchId.current : activeYawTouchId.current;
 
-  const yawResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => commandsEnabled,
-    onMoveShouldSetPanResponder: () => commandsEnabled,
-    onPanResponderGrant: (event) => {
+    if (activeTouchId === null || !hasChangedTouch(event, activeTouchId)) {
+      return;
+    }
+
+    if (isMoveTouch) {
+      activeMoveTouchId.current = null;
+      activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      setKnobPosition({ x: 0, y: 0 });
+    } else {
+      activeYawTouchId.current = null;
+      activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      setYawKnobPosition({ x: 0, y: 0 });
+    }
+
+    lastMoveSentAt.current = 0;
+
+    if (hasActiveJoystickTouch()) {
       setScrollEnabled(false);
-      const position = getVectorFromTouch(event, false);
-      setYawKnobPosition(position);
-      sendTouchYaw('Dirección', position.x);
-    },
-    onPanResponderMove: (event) => {
-      const position = getVectorFromTouch(event, false);
-      setYawKnobPosition(position);
-      sendTouchYaw('Dirección', position.x);
-    },
-    onPanResponderRelease: () => {
-      setYawKnobPosition({ x: 0, y: 0 });
-      setScrollEnabled(true);
+      sendCombinedJoystickCommand(isMoveTouch ? 'Dirección' : 'Joystick');
+      return;
+    }
+
+    setScrollEnabled(true);
+    sendStop(false);
+  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, sendStop]);
+
+  const updateJoystickTouch = useCallback((type, event, shouldAssignTouch = false) => {
+    if (!commandsEnabled) return;
+
+    const isMoveTouch = type === 'move';
+    const activeTouchRef = isMoveTouch ? activeMoveTouchId : activeYawTouchId;
+
+    if (shouldAssignTouch) {
+      activeTouchRef.current = getTouchIdentifier(event?.nativeEvent);
       lastMoveSentAt.current = 0;
-      sendStop(false);
-    },
-    onPanResponderTerminate: () => {
-      setYawKnobPosition({ x: 0, y: 0 });
-      setScrollEnabled(true);
-      lastMoveSentAt.current = 0;
-      sendStop(false);
-    },
-  }), [commandsEnabled, sendTouchYaw, sendStop]);
+    }
+
+    if (activeTouchRef.current === null) {
+      return;
+    }
+
+    const touch = getTouchFromEvent(event, activeTouchRef.current);
+    const position = getVectorFromNativeTouch(touch, isMoveTouch);
+    setScrollEnabled(false);
+
+    if (isMoveTouch) {
+      setKnobPosition(position);
+      activeMoveCommand.current = getMoveJoystickCommand(position.x, position.y);
+    } else {
+      setYawKnobPosition(position);
+      activeYawCommand.current = getYawJoystickCommand(position.x);
+    }
+
+    sendCombinedJoystickCommand(isMoveTouch ? 'Joystick' : 'Dirección');
+  }, [commandsEnabled, sendCombinedJoystickCommand]);
+
+  const moveJoystickTouchHandlers = useMemo(() => ({
+    onTouchStart: (event) => updateJoystickTouch('move', event, true),
+    onTouchMove: (event) => updateJoystickTouch('move', event),
+    onTouchEnd: (event) => releaseJoystickTouch('move', event),
+    onTouchCancel: (event) => releaseJoystickTouch('move', event),
+  }), [releaseJoystickTouch, updateJoystickTouch]);
+
+  const yawJoystickTouchHandlers = useMemo(() => ({
+    onTouchStart: (event) => updateJoystickTouch('yaw', event, true),
+    onTouchMove: (event) => updateJoystickTouch('yaw', event),
+    onTouchEnd: (event) => releaseJoystickTouch('yaw', event),
+    onTouchCancel: (event) => releaseJoystickTouch('yaw', event),
+  }), [releaseJoystickTouch, updateJoystickTouch]);
 
   const dragResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => commandsEnabled,
@@ -396,6 +475,21 @@ export default function ControlScreen() {
     setYawKnobPosition({ x: 0, y: 0 });
     setDragPosition({ x: 0, y: 0 });
     setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
+    activeMoveTouchId.current = null;
+    activeYawTouchId.current = null;
+    activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+    activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+  };
+
+  const handleVerticalJoystickModeChange = (mode) => {
+    setVerticalJoystickMode(mode);
+    setKnobPosition({ x: 0, y: 0 });
+    setYawKnobPosition({ x: 0, y: 0 });
+    setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
+    activeMoveTouchId.current = null;
+    activeYawTouchId.current = null;
+    activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+    activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
   };
 
   const renderCommandButton = (label, icon, vx, vy, vyaw, style) => (
@@ -549,6 +643,27 @@ export default function ControlScreen() {
               </View>
             )}
 
+            {!isLandscapeLayout && controlMode === 'joystick' && (
+              <View style={styles.joystickModeSwitch}>
+                <TouchableOpacity
+                  style={[styles.modeButton, verticalJoystickMode === 'move' && styles.modeButtonActive]}
+                  onPress={() => handleVerticalJoystickModeChange('move')}
+                >
+                  <Text style={[styles.modeText, verticalJoystickMode === 'move' && styles.modeTextActive]}>
+                    Movimiento
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modeButton, verticalJoystickMode === 'yaw' && styles.modeButtonActive]}
+                  onPress={() => handleVerticalJoystickModeChange('yaw')}
+                >
+                  <Text style={[styles.modeText, verticalJoystickMode === 'yaw' && styles.modeTextActive]}>
+                    Vista
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {isLandscapeLayout ? (
               <View style={styles.dualJoystickRow}>
                 <View style={styles.dualJoystickColumn}>
@@ -556,7 +671,7 @@ export default function ControlScreen() {
                   <View
                     testID="move-joystick-base"
                     style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
-                    {...joystickResponder.panHandlers}
+                    {...moveJoystickTouchHandlers}
                   >
                     <View pointerEvents="none" style={styles.joystickCrossVertical} />
                     <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
@@ -581,7 +696,7 @@ export default function ControlScreen() {
                   <View
                     testID="yaw-joystick-base"
                     style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
-                    {...yawResponder.panHandlers}
+                    {...yawJoystickTouchHandlers}
                   >
                     <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
                     <View
@@ -607,23 +722,30 @@ export default function ControlScreen() {
                 <View
                   testID="joystick-base"
                   style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
-                  {...joystickResponder.panHandlers}
+                  {...(verticalJoystickMode === 'move' ? moveJoystickTouchHandlers : yawJoystickTouchHandlers)}
                 >
-                  <View pointerEvents="none" style={styles.joystickCrossVertical} />
+                  {verticalJoystickMode === 'move' && (
+                    <View pointerEvents="none" style={styles.joystickCrossVertical} />
+                  )}
                   <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
                   <View
                     pointerEvents="none"
                     style={[
                       styles.joystickKnob,
+                      verticalJoystickMode === 'yaw' && styles.yawJoystickKnob,
                       {
                         transform: [
-                          { translateX: knobPosition.x },
-                          { translateY: knobPosition.y },
+                          { translateX: verticalJoystickMode === 'move' ? knobPosition.x : yawKnobPosition.x },
+                          { translateY: verticalJoystickMode === 'move' ? knobPosition.y : 0 },
                         ],
                       },
                     ]}
                   >
-                    <MaterialCommunityIcons name="arrow-all" size={28} color={Theme.colors.text} />
+                    <MaterialCommunityIcons
+                      name={verticalJoystickMode === 'move' ? 'arrow-all' : 'rotate-360'}
+                      size={28}
+                      color={Theme.colors.text}
+                    />
                   </View>
                 </View>
               </View>
@@ -867,6 +989,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Theme.colors.border,
     padding: 3,
+  },
+  joystickModeSwitch: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    backgroundColor: Theme.colors.background,
+    borderRadius: Theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    padding: 3,
+    marginBottom: 12,
   },
   modeButton: {
     paddingHorizontal: 10,

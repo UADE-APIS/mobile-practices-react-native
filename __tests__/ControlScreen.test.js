@@ -3,6 +3,7 @@ import * as ReactNative from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import ControlScreen, {
+  combineJoystickCommands,
   getJoystickCommand,
   getMoveJoystickCommand,
   getVectorFromTouch,
@@ -167,6 +168,29 @@ describe('ControlScreen (Control de Movimiento)', () => {
     expect(getYawJoystickCommand(999).vyaw).toBeLessThanOrEqual(1.2);
   });
 
+  it('debe combinar movimiento y direccion sin anular ningun eje', () => {
+    const moveCommand = getMoveJoystickCommand(39, -39);
+    const yawCommand = getYawJoystickCommand(39);
+
+    expect(combineJoystickCommands(moveCommand, yawCommand)).toEqual({
+      vx: 0.23,
+      vy: 0.23,
+      vyaw: 0.6,
+    });
+  });
+
+  it('debe limitar comandos combinados invalidos o fuera de rango', () => {
+    const command = combineJoystickCommands(
+      { vx: 99, vy: Number.NaN },
+      { vyaw: -99 }
+    );
+
+    expect(command).toEqual({ vx: 0.45, vy: 0, vyaw: -1.2 });
+    Object.values(command).forEach((value) => {
+      expect(Number.isFinite(value)).toBe(true);
+    });
+  });
+
   it('debe obtener el vector desde la posicion exacta del dedo', () => {
     const event = {
       nativeEvent: {
@@ -213,6 +237,23 @@ describe('ControlScreen (Control de Movimiento)', () => {
     fireEvent.press(getByText('Arrastre'));
 
     expect(getByText('Arrastrá dentro del área')).toBeTruthy();
+  });
+
+  it('debe permitir usar el joystick vertical para mover la vista', async () => {
+    const { getByText, getByTestId } = renderControlScreen();
+
+    fireEvent.press(getByText('Vista'));
+    fireEvent(getByTestId('joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 110,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0, 0, 0.6);
+    });
   });
 
   it('debe mostrar el control de orientacion horizontal', () => {
@@ -267,6 +308,70 @@ describe('ControlScreen (Control de Movimiento)', () => {
 
     expect(getByText('Movimiento')).toBeTruthy();
     expect(getByText('Dirección')).toBeTruthy();
+  });
+
+  it('debe combinar los dos joysticks horizontales cuando se usan al mismo tiempo', async () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId } = renderControlScreen();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+    fireEvent(getByTestId('move-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+    fireEvent(getByTestId('yaw-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 2,
+        locationX: 149,
+        locationY: 110,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0.23, 0.23, 0.6);
+    });
+  });
+
+  it('no debe detener si se suelta un joystick horizontal y el otro sigue activo', async () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId } = renderControlScreen();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+    fireEvent(getByTestId('move-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+    fireEvent(getByTestId('yaw-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 2,
+        locationX: 149,
+        locationY: 110,
+      },
+    });
+    fireEvent(getByTestId('move-joystick-base'), 'touchEnd', {
+      nativeEvent: {
+        changedTouches: [{ identifier: 1 }],
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockStopRobot).not.toHaveBeenCalled();
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0, 0, 0.6);
+    });
   });
 
   it('debe enviar comandos de postura', async () => {

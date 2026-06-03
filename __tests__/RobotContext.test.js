@@ -104,4 +104,44 @@ describe('RobotContext', () => {
     unmount();
     console.error.mockRestore();
   });
+
+  it('debe incluir la URL de API en errores de timeout', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const timeoutError = new Error('timeout of 10000ms exceeded');
+    timeoutError.code = 'ECONNABORTED';
+    const api = {
+      get: jest.fn(),
+      post: jest.fn().mockRejectedValue(timeoutError),
+      interceptors: {
+        request: {
+          use: jest.fn(() => 1),
+          eject: jest.fn(),
+        },
+      },
+    };
+    axios.create.mockReturnValue(api);
+
+    let stopRobot;
+
+    function ContextProbe() {
+      stopRobot = useContext(RobotContext).stopRobot;
+      return null;
+    }
+
+    const { unmount } = render(
+      <AuthContext.Provider value={{ user: null }}>
+        <RobotProvider>
+          <ContextProbe />
+        </RobotProvider>
+      </AuthContext.Provider>
+    );
+
+    await expect(stopRobot()).rejects.toMatchObject({
+      robotMessage: expect.stringContaining('Timeout consultando'),
+    });
+    expect(timeoutError.robotMessage).toContain('Revisá si la IP del backend cambió');
+
+    unmount();
+    console.error.mockRestore();
+  });
 });

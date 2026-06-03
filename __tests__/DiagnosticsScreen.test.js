@@ -66,4 +66,14 @@ describe('DiagnosticsScreen', () => {
       expect(mockSetServerUrl).toHaveBeenCalledWith('http://10.2.2.220:8000');
     });
   });
+
+  it('debe guardar la URL sugerida', async () => {
+    const { getByTestId } = renderScreen();
+
+    fireEvent.press(getByTestId('use-recommended-api-url'));
+
+    await waitFor(() => {
+      expect(mockSetServerUrl).toHaveBeenCalledWith('http://10.2.2.220:8000');
+    });
+  });
 });
