@@ -4,20 +4,23 @@ import * as SecureStore from 'expo-secure-store';
 
 export const API_TIMEOUT = 10000;
 
+function getBundlerHost() {
+  const scriptURL = NativeModules.SourceCode?.scriptURL || '';
+  const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
+
+  return match?.[1] || null;
+}
+
 export function getDefaultServerUrl() {
+  const bundlerHost = getBundlerHost();
+
+  if (bundlerHost) {
+    return `http://${bundlerHost}:8000`;
+  }
+
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:8000';
   }
-
-  if (Platform.OS === 'ios') {
-    const scriptURL = NativeModules.SourceCode?.scriptURL || '';
-    const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
-
-    if (match) {
-      return `http://${match[1]}:8000`;
-    }
-  }
-
   return 'http://localhost:8000';
 }
 

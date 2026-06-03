@@ -1,7 +1,14 @@
 import React from 'react';
+import * as ReactNative from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import ControlScreen, { getJoystickCommand } from '../screens/ControlScreen';
+import ControlScreen, {
+  getJoystickCommand,
+  getMoveJoystickCommand,
+  getVectorFromTouch,
+  getYawJoystickCommand,
+  normalizeJoystickVector,
+} from '../screens/ControlScreen';
 import { RobotContext } from '../context/RobotContext';
 
 jest.mock('@expo/vector-icons', () => {
@@ -51,6 +58,11 @@ describe('ControlScreen (Control de Movimiento)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.restoreAllMocks();
+    ReactNative.Dimensions.set({
+      window: { width: 390, height: 844, scale: 1, fontScale: 1 },
+      screen: { width: 390, height: 844, scale: 1, fontScale: 1 },
+    });
     mockMoveRobot.mockResolvedValue({ success: true });
     mockStopRobot.mockResolvedValue({ success: true });
     mockStandUpRobot.mockResolvedValue({ success: true });
@@ -136,8 +148,125 @@ describe('ControlScreen (Control de Movimiento)', () => {
   });
 
   it('debe convertir la posicion del joystick en velocidades variables', () => {
-    expect(getJoystickCommand(78, -78, 'lateral')).toEqual({ vx: 0.45, vy: 0.45, vyaw: 0 });
-    expect(getJoystickCommand(-39, 39, 'giro')).toEqual({ vx: -0.23, vy: 0, vyaw: -0.6 });
+    expect(getJoystickCommand(78, -78, 'lateral')).toEqual({ vx: 0.32, vy: 0.32, vyaw: 0 });
+    expect(getJoystickCommand(-39, 39)).toEqual({ vx: -0.23, vy: -0.23, vyaw: 0 });
+  });
+
+  it('debe soportar diagonales en modo lateral', () => {
+    expect(getMoveJoystickCommand(39, -39)).toEqual({ vx: 0.23, vy: 0.23, vyaw: 0 });
+  });
+
+  it('debe mantener vyaw en cero al mover hacia las esquinas', () => {
+    expect(getJoystickCommand(39, -39)).toEqual({ vx: 0.23, vy: 0.23, vyaw: 0 });
+    expect(getJoystickCommand(-39, -39)).toEqual({ vx: 0.23, vy: -0.23, vyaw: 0 });
+  });
+
+  it('debe convertir el joystick de direccion en vyaw', () => {
+    expect(getYawJoystickCommand(39)).toEqual({ vx: 0, vy: 0, vyaw: 0.6 });
+    expect(getYawJoystickCommand(-39)).toEqual({ vx: 0, vy: 0, vyaw: -0.6 });
+    expect(getYawJoystickCommand(999).vyaw).toBeLessThanOrEqual(1.2);
+  });
+
+  it('debe obtener el vector desde la posicion exacta del dedo', () => {
+    const event = {
+      nativeEvent: {
+        locationX: 149,
+        locationY: 71,
+      },
+    };
+
+    expect(getVectorFromTouch(event)).toEqual({ x: 39, y: -39 });
+    expect(getVectorFromTouch(event, false)).toEqual({ x: 39, y: 0 });
+  });
+
+  it('debe normalizar circularmente el vector del joystick', () => {
+    const vector = normalizeJoystickVector(78, 78);
+
+    expect(Math.hypot(vector.x, vector.y)).toBeCloseTo(78);
+    expect(vector.x).toBeCloseTo(55.15, 2);
+    expect(vector.y).toBeCloseTo(55.15, 2);
+  });
+
+  it('no debe anular el comando por pequeños desvios fuera del eje', () => {
+    const command = getJoystickCommand(2, -50, 'lateral');
+
+    expect(command.vx).toBeGreaterThan(0);
+    expect(command.vy).toBeGreaterThan(0);
+  });
+
+  it('debe devolver comandos validos y dentro de rango', () => {
+    const invalidCommand = getJoystickCommand(undefined, NaN, 'lateral');
+    const largeCommand = getJoystickCommand(999, -999);
+
+    [...Object.values(invalidCommand), ...Object.values(largeCommand)].forEach((value) => {
+      expect(Number.isFinite(value)).toBe(true);
+    });
+    expect(invalidCommand).toEqual({ vx: 0, vy: 0, vyaw: 0 });
+    expect(Math.abs(largeCommand.vx)).toBeLessThanOrEqual(0.45);
+    expect(Math.abs(largeCommand.vy)).toBeLessThanOrEqual(0.45);
+    expect(largeCommand.vyaw).toBe(0);
+  });
+
+  it('debe permitir elegir modo arrastre', () => {
+    const { getByText } = renderControlScreen();
+
+    fireEvent.press(getByText('Arrastre'));
+
+    expect(getByText('Arrastrá dentro del área')).toBeTruthy();
+  });
+
+  it('debe mostrar el control de orientacion horizontal', () => {
+    const { getByTestId, getByText, queryByTestId } = renderControlScreen();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+
+    expect(getByText('Poné el celular en horizontal para ver los dos joysticks.')).toBeTruthy();
+    expect(queryByTestId('move-joystick-base')).toBeNull();
+  });
+
+  it('no debe cambiar el layout automaticamente al girar el celular', () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId, queryByTestId } = renderControlScreen();
+
+    expect(getByTestId('joystick-base')).toBeTruthy();
+    expect(queryByTestId('move-joystick-base')).toBeNull();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+    expect(getByTestId('move-joystick-base')).toBeTruthy();
+  });
+
+  it('debe volver al layout vertical al tocar otra vez el boton de orientacion', () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId, queryByTestId } = renderControlScreen();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+    expect(getByTestId('move-joystick-base')).toBeTruthy();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+    expect(getByTestId('joystick-base')).toBeTruthy();
+    expect(queryByTestId('move-joystick-base')).toBeNull();
+  });
+
+  it('debe mostrar etiquetas de dos joysticks en layout horizontal manual', () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId, getByText } = renderControlScreen();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+
+    expect(getByText('Movimiento')).toBeTruthy();
+    expect(getByText('Dirección')).toBeTruthy();
   });
 
   it('debe enviar comandos de postura', async () => {
