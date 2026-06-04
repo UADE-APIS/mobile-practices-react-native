@@ -76,16 +76,6 @@ export function RobotProvider({ children }) {
     loadConfig();
   }, [user]);
 
-  const setServerUrl = useCallback(async (url) => {
-    try {
-      const cleanUrl = normalizeServerUrl(url);
-      await SecureStore.setItemAsync('server_url', cleanUrl);
-      setServerUrlState(cleanUrl);
-    } catch (err) {
-      console.error('Failed to save server URL:', err);
-    }
-  }, []);
-
   const fetchStatus = useCallback(async () => {
     if (!user) return;
     try {
@@ -237,7 +227,6 @@ export function RobotProvider({ children }) {
         status,
         loading,
         serverUrl,
-        setServerUrl,
         connectRobot,
         disconnectRobot,
         moveRobot,

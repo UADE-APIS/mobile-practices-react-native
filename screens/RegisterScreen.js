@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,7 +14,8 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { Theme } from '../config/theme';
-import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
+import { normalizeServerUrl } from '../config/api';
+import useRecommendedServerUrl from '../hooks/useRecommendedServerUrl';
 
 export default function RegisterScreen({ route, navigation }) {
   const { register } = useContext(AuthContext);
@@ -24,9 +25,17 @@ export default function RegisterScreen({ route, navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [serverUrl, setServerUrl] = useState(routeServerUrl || getDefaultServerUrl());
+  const { recommendedUrl, networkState } = useRecommendedServerUrl();
+  const [serverUrl, setServerUrl] = useState(routeServerUrl || recommendedUrl);
+  const [autoServerUrl, setAutoServerUrl] = useState(!routeServerUrl);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (autoServerUrl) {
+      setServerUrl(recommendedUrl);
+    }
+  }, [autoServerUrl, recommendedUrl]);
 
   const handleRegister = async () => {
     const cleanServerUrl = normalizeServerUrl(serverUrl);
@@ -76,12 +85,30 @@ export default function RegisterScreen({ route, navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
         <View style={styles.formContainer}>
           <Text style={styles.inputLabel}>Dirección de la API del Robot</Text>
+          <View style={styles.recommendedRow}>
+            <Text style={styles.helperText}>Recomendada: {recommendedUrl}</Text>
+            <Text style={styles.helperText}>Red: {networkState.type || 'UNKNOWN'}</Text>
+            <TouchableOpacity
+              testID="use-recommended-register-api-url"
+              style={styles.recommendedBtn}
+              onPress={() => {
+                setAutoServerUrl(true);
+                setServerUrl(recommendedUrl);
+              }}
+            >
+              <MaterialCommunityIcons name="cellphone-arrow-down" size={16} color={Theme.colors.text} />
+              <Text style={styles.recommendedBtnText}>Usar</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.inputWrapper}>
             <MaterialCommunityIcons name="server" size={20} color={Theme.colors.textMuted} style={styles.inputIcon} />
             <TextInput
               style={styles.textInput}
               value={serverUrl}
-              onChangeText={setServerUrl}
+              onChangeText={(value) => {
+                setAutoServerUrl(false);
+                setServerUrl(value);
+              }}
               placeholder="http://localhost:8000"
               placeholderTextColor={Theme.colors.textDim}
               autoCapitalize="none"
@@ -191,6 +218,33 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     gap: 12,
+  },
+  recommendedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  helperText: {
+    flex: 1,
+    color: Theme.colors.textMuted,
+    fontSize: 12,
+  },
+  recommendedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Theme.colors.card,
+    borderRadius: Theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  recommendedBtnText: {
+    color: Theme.colors.text,
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputLabel: {
     fontSize: 12,

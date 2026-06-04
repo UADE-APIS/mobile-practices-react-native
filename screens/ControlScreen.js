@@ -2,7 +2,6 @@ import React, { useCallback, useContext, useMemo, useRef, useState } from 'react
 import {
   ActivityIndicator,
   Alert,
-  PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -121,6 +120,22 @@ function getVectorFromNativeTouch(nativeEvent, allowY = true) {
   );
 }
 
+function getTouchPoint(nativeEvent) {
+  return {
+    x: safeNumber(nativeEvent?.pageX ?? nativeEvent?.locationX),
+    y: safeNumber(nativeEvent?.pageY ?? nativeEvent?.locationY),
+  };
+}
+
+function getDragVectorFromNativeTouch(nativeEvent, origin, allowY = true) {
+  const point = getTouchPoint(nativeEvent);
+
+  return normalizeJoystickVector(
+    point.x - safeNumber(origin?.x),
+    allowY ? point.y - safeNumber(origin?.y) : 0
+  );
+}
+
 function getApiError(err) {
   return err.robotMessage
     || err.response?.data?.detail
@@ -182,7 +197,8 @@ export default function ControlScreen() {
   const [controlLayout, setControlLayout] = useState('vertical');
   const [knobPosition, setKnobPosition] = useState({ x: 0, y: 0 });
   const [yawKnobPosition, setYawKnobPosition] = useState({ x: 0, y: 0 });
-  const [dragPosition, setDragPosition] = useState({ x: 0, y: 0 });
+  const [moveDragPosition, setMoveDragPosition] = useState({ x: 0, y: 0 });
+  const [yawDragPosition, setYawDragPosition] = useState({ x: 0, y: 0 });
   const [joystickCommand, setJoystickCommand] = useState({ vx: 0, vy: 0, vyaw: 0 });
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
@@ -191,6 +207,8 @@ export default function ControlScreen() {
   const pendingMoveRequests = useRef(new Set());
   const activeMoveTouchId = useRef(null);
   const activeYawTouchId = useRef(null);
+  const activeMoveDragOrigin = useRef({ x: 0, y: 0 });
+  const activeYawDragOrigin = useRef({ x: 0, y: 0 });
   const activeMoveCommand = useRef({ vx: 0, vy: 0, vyaw: 0 });
   const activeYawCommand = useRef({ vx: 0, vy: 0, vyaw: 0 });
   const isConnected = status.connection_state === 'connected';
@@ -286,7 +304,8 @@ export default function ControlScreen() {
     setCommandLoading((current) => current === 'stop' ? null : current);
     setKnobPosition({ x: 0, y: 0 });
     setYawKnobPosition({ x: 0, y: 0 });
-    setDragPosition({ x: 0, y: 0 });
+    setMoveDragPosition({ x: 0, y: 0 });
+    setYawDragPosition({ x: 0, y: 0 });
     activeMoveTouchId.current = null;
     activeYawTouchId.current = null;
     activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
@@ -318,7 +337,8 @@ export default function ControlScreen() {
       activeYawTouchId.current = null;
       setKnobPosition({ x: 0, y: 0 });
       setYawKnobPosition({ x: 0, y: 0 });
-      setDragPosition({ x: 0, y: 0 });
+      setMoveDragPosition({ x: 0, y: 0 });
+      setYawDragPosition({ x: 0, y: 0 });
       setFeedback({
         type: 'success',
         message: isStandUp ? 'Comando Pararse enviado correctamente.' : 'Comando Sentarse enviado correctamente.',
@@ -355,10 +375,6 @@ export default function ControlScreen() {
         }
       });
   }, [commandsEnabled, sendMoveRequest]);
-  const sendTouchMove = useCallback((label, x, y) => {
-    sendTouchCommand(label, getMoveJoystickCommand(x, y));
-  }, [sendTouchCommand]);
-
   const hasActiveJoystickTouch = useCallback(() => (
     activeMoveTouchId.current !== null || activeYawTouchId.current !== null
   ), []);
@@ -442,37 +458,99 @@ export default function ControlScreen() {
     onTouchCancel: (event) => releaseJoystickTouch('yaw', event),
   }), [releaseJoystickTouch, updateJoystickTouch]);
 
-  const dragResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => commandsEnabled,
-    onMoveShouldSetPanResponder: () => commandsEnabled,
-    onPanResponderGrant: () => {
+  const releaseDragTouch = useCallback((type, event) => {
+    const isMoveTouch = type === 'move';
+    const activeTouchId = isMoveTouch ? activeMoveTouchId.current : activeYawTouchId.current;
+
+    if (activeTouchId === null || !hasChangedTouch(event, activeTouchId)) {
+      return;
+    }
+
+    if (isMoveTouch) {
+      activeMoveTouchId.current = null;
+      activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      setMoveDragPosition({ x: 0, y: 0 });
+    } else {
+      activeYawTouchId.current = null;
+      activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      setYawDragPosition({ x: 0, y: 0 });
+    }
+
+    lastMoveSentAt.current = 0;
+
+    if (hasActiveJoystickTouch()) {
       setScrollEnabled(false);
-      setDragPosition({ x: 0, y: 0 });
-    },
-    onPanResponderMove: (_, gestureState) => {
-      const position = normalizeJoystickVector(gestureState.dx, gestureState.dy);
-      setDragPosition(position);
-      sendTouchMove('Arrastre', position.x, position.y);
-    },
-    onPanResponderRelease: () => {
-      setDragPosition({ x: 0, y: 0 });
-      setScrollEnabled(true);
+      sendCombinedJoystickCommand(isMoveTouch ? 'Vista' : 'Arrastre');
+      return;
+    }
+
+    setScrollEnabled(true);
+    sendStop(false);
+  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, sendStop]);
+
+  const updateDragTouch = useCallback((type, event, shouldAssignTouch = false) => {
+    if (!commandsEnabled) return;
+
+    const isMoveTouch = type === 'move';
+    const activeTouchRef = isMoveTouch ? activeMoveTouchId : activeYawTouchId;
+    const activeOriginRef = isMoveTouch ? activeMoveDragOrigin : activeYawDragOrigin;
+
+    if (shouldAssignTouch) {
+      activeTouchRef.current = getTouchIdentifier(event?.nativeEvent);
+      activeOriginRef.current = getTouchPoint(event?.nativeEvent);
       lastMoveSentAt.current = 0;
-      sendStop(false);
-    },
-    onPanResponderTerminate: () => {
-      setDragPosition({ x: 0, y: 0 });
-      setScrollEnabled(true);
-      lastMoveSentAt.current = 0;
-      sendStop(false);
-    },
-  }), [commandsEnabled, sendTouchMove, sendStop]);
+
+      if (isMoveTouch) {
+        setMoveDragPosition({ x: 0, y: 0 });
+        activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      } else {
+        setYawDragPosition({ x: 0, y: 0 });
+        activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+      }
+
+      setScrollEnabled(false);
+      return;
+    }
+
+    if (activeTouchRef.current === null) {
+      return;
+    }
+
+    const touch = getTouchFromEvent(event, activeTouchRef.current);
+    const position = getDragVectorFromNativeTouch(touch, activeOriginRef.current, isMoveTouch);
+    setScrollEnabled(false);
+
+    if (isMoveTouch) {
+      setMoveDragPosition(position);
+      activeMoveCommand.current = getMoveJoystickCommand(position.x, position.y);
+    } else {
+      setYawDragPosition(position);
+      activeYawCommand.current = getYawJoystickCommand(position.x);
+    }
+
+    sendCombinedJoystickCommand(isMoveTouch ? 'Arrastre' : 'Vista');
+  }, [commandsEnabled, sendCombinedJoystickCommand]);
+
+  const moveDragTouchHandlers = useMemo(() => ({
+    onTouchStart: (event) => updateDragTouch('move', event, true),
+    onTouchMove: (event) => updateDragTouch('move', event),
+    onTouchEnd: (event) => releaseDragTouch('move', event),
+    onTouchCancel: (event) => releaseDragTouch('move', event),
+  }), [releaseDragTouch, updateDragTouch]);
+
+  const yawDragTouchHandlers = useMemo(() => ({
+    onTouchStart: (event) => updateDragTouch('yaw', event, true),
+    onTouchMove: (event) => updateDragTouch('yaw', event),
+    onTouchEnd: (event) => releaseDragTouch('yaw', event),
+    onTouchCancel: (event) => releaseDragTouch('yaw', event),
+  }), [releaseDragTouch, updateDragTouch]);
 
   const handleControlModeChange = (mode) => {
     setControlMode(mode);
     setKnobPosition({ x: 0, y: 0 });
     setYawKnobPosition({ x: 0, y: 0 });
-    setDragPosition({ x: 0, y: 0 });
+    setMoveDragPosition({ x: 0, y: 0 });
+    setYawDragPosition({ x: 0, y: 0 });
     setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
     activeMoveTouchId.current = null;
     activeYawTouchId.current = null;
@@ -638,7 +716,7 @@ export default function ControlScreen() {
 
             {wantsLandscapeLayout && !isDeviceLandscape && (
               <View style={styles.orientationHint}>
-                <Text style={styles.orientationHintText}>Poné el celular en horizontal para ver los dos joysticks.</Text>
+                <Text style={styles.orientationHintText}>Poné el celular en horizontal para ver los dos controles.</Text>
               </View>
             )}
 
@@ -663,7 +741,7 @@ export default function ControlScreen() {
               </View>
             )}
 
-            {isLandscapeLayout ? (
+            {isLandscapeLayout && controlMode === 'joystick' ? (
               <View style={styles.dualJoystickRow}>
                 <View style={styles.dualJoystickColumn}>
                   <Text style={styles.joystickLabel}>Movimiento</Text>
@@ -749,26 +827,55 @@ export default function ControlScreen() {
                 </View>
               </View>
             ) : (
-              <View
-                testID="drag-control-area"
-                style={[styles.dragArea, !isConnected && styles.disabledJoystick]}
-                {...dragResponder.panHandlers}
-              >
-                <View pointerEvents="none" style={styles.dragCrossVertical} />
-                <View pointerEvents="none" style={styles.dragCrossHorizontal} />
-                <View
-                  pointerEvents="none"
-                  style={[
-                    styles.dragIndicator,
-                    {
-                      transform: [
-                        { translateX: dragPosition.x },
-                        { translateY: dragPosition.y },
-                      ],
-                    },
-                  ]}
-                />
-                <Text style={styles.dragText}>Arrastrá dentro del área</Text>
+              <View style={[styles.dualDragRow, isLandscapeLayout && styles.dualDragRowLandscape]}>
+                <View style={styles.dualDragColumn}>
+                  <Text style={styles.joystickLabel}>Movimiento</Text>
+                  <View
+                    testID="move-drag-area"
+                    style={[styles.dragArea, !isConnected && styles.disabledJoystick]}
+                    {...moveDragTouchHandlers}
+                  >
+                    <View pointerEvents="none" style={styles.dragCrossVertical} />
+                    <View pointerEvents="none" style={styles.dragCrossHorizontal} />
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.dragIndicator,
+                        {
+                          transform: [
+                            { translateX: moveDragPosition.x },
+                            { translateY: moveDragPosition.y },
+                          ],
+                        },
+                      ]}
+                    />
+                    <Text style={styles.dragText}>Arrastrá para mover</Text>
+                  </View>
+                </View>
+                <View style={styles.dualDragColumn}>
+                  <Text style={styles.joystickLabel}>Vista</Text>
+                  <View
+                    testID="yaw-drag-area"
+                    style={[styles.dragArea, !isConnected && styles.disabledJoystick]}
+                    {...yawDragTouchHandlers}
+                  >
+                    <View pointerEvents="none" style={styles.dragCrossHorizontal} />
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.dragIndicator,
+                        styles.yawDragIndicator,
+                        {
+                          transform: [
+                            { translateX: yawDragPosition.x },
+                            { translateY: 0 },
+                          ],
+                        },
+                      ]}
+                    />
+                    <Text style={styles.dragText}>Arrastrá para mirar</Text>
+                  </View>
+                </View>
               </View>
             )}
 
@@ -1042,6 +1149,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
   },
+  dualDragRow: {
+    gap: Theme.spacing.md,
+    marginTop: 8,
+  },
+  dualDragRowLandscape: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  dualDragColumn: {
+    flex: 1,
+  },
   joystickLabel: {
     color: Theme.colors.textMuted,
     fontSize: 12,
@@ -1120,6 +1238,9 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     backgroundColor: Theme.colors.accent,
+  },
+  yawDragIndicator: {
+    backgroundColor: Theme.colors.info,
   },
   dragText: {
     color: Theme.colors.textMuted,
