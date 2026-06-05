@@ -1,8 +1,9 @@
 import React from 'react';
 import * as ReactNative from 'react-native';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import ControlScreen, {
+  combineJoystickCommands,
   getJoystickCommand,
   getMoveJoystickCommand,
   getVectorFromTouch,
@@ -167,6 +168,29 @@ describe('ControlScreen (Control de Movimiento)', () => {
     expect(getYawJoystickCommand(999).vyaw).toBeLessThanOrEqual(1.2);
   });
 
+  it('debe combinar movimiento y direccion sin anular ningun eje', () => {
+    const moveCommand = getMoveJoystickCommand(39, -39);
+    const yawCommand = getYawJoystickCommand(39);
+
+    expect(combineJoystickCommands(moveCommand, yawCommand)).toEqual({
+      vx: 0.23,
+      vy: 0.23,
+      vyaw: 0.6,
+    });
+  });
+
+  it('debe limitar comandos combinados invalidos o fuera de rango', () => {
+    const command = combineJoystickCommands(
+      { vx: 99, vy: Number.NaN },
+      { vyaw: -99 }
+    );
+
+    expect(command).toEqual({ vx: 0.45, vy: 0, vyaw: -1.2 });
+    Object.values(command).forEach((value) => {
+      expect(Number.isFinite(value)).toBe(true);
+    });
+  });
+
   it('debe obtener el vector desde la posicion exacta del dedo', () => {
     const event = {
       nativeEvent: {
@@ -208,11 +232,189 @@ describe('ControlScreen (Control de Movimiento)', () => {
   });
 
   it('debe permitir elegir modo arrastre', () => {
-    const { getByText } = renderControlScreen();
+    const { getByTestId, getByText } = renderControlScreen();
 
     fireEvent.press(getByText('Arrastre'));
 
-    expect(getByText('Arrastrá dentro del área')).toBeTruthy();
+    expect(getByText('Arrastrá para mover')).toBeTruthy();
+    expect(getByText('Arrastrá para mirar')).toBeTruthy();
+    expect(getByTestId('move-drag-area')).toBeTruthy();
+    expect(getByTestId('yaw-drag-area')).toBeTruthy();
+  });
+
+  it('debe mover con el arrastre de movimiento', async () => {
+    const { getByTestId, getByText } = renderControlScreen();
+
+    fireEvent.press(getByText('Arrastre'));
+    fireEvent(getByTestId('move-drag-area'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 100,
+        pageY: 100,
+      },
+    });
+    fireEvent(getByTestId('move-drag-area'), 'touchMove', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 139,
+        pageY: 61,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0.23, 0.23, 0);
+    });
+  });
+
+  it('debe mover la vista con el arrastre de vista', async () => {
+    const { getByTestId, getByText } = renderControlScreen();
+
+    fireEvent.press(getByText('Arrastre'));
+    fireEvent(getByTestId('yaw-drag-area'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 100,
+        pageY: 100,
+      },
+    });
+    fireEvent(getByTestId('yaw-drag-area'), 'touchMove', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 139,
+        pageY: 170,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0, 0, 0.6);
+    });
+  });
+
+  it('debe combinar los dos arrastres cuando se usan al mismo tiempo', async () => {
+    const { getByTestId, getByText } = renderControlScreen();
+
+    fireEvent.press(getByText('Arrastre'));
+    fireEvent(getByTestId('move-drag-area'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 100,
+        pageY: 100,
+      },
+    });
+    fireEvent(getByTestId('move-drag-area'), 'touchMove', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 139,
+        pageY: 61,
+      },
+    });
+    fireEvent(getByTestId('yaw-drag-area'), 'touchStart', {
+      nativeEvent: {
+        identifier: 2,
+        pageX: 100,
+        pageY: 100,
+      },
+    });
+    fireEvent(getByTestId('yaw-drag-area'), 'touchMove', {
+      nativeEvent: {
+        identifier: 2,
+        pageX: 139,
+        pageY: 170,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0.23, 0.23, 0.6);
+    });
+  });
+
+  it('no debe detener si se suelta un arrastre y el otro sigue activo', async () => {
+    const { getByTestId, getByText } = renderControlScreen();
+
+    fireEvent.press(getByText('Arrastre'));
+    fireEvent(getByTestId('move-drag-area'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 100,
+        pageY: 100,
+      },
+    });
+    fireEvent(getByTestId('move-drag-area'), 'touchMove', {
+      nativeEvent: {
+        identifier: 1,
+        pageX: 139,
+        pageY: 61,
+      },
+    });
+    fireEvent(getByTestId('yaw-drag-area'), 'touchStart', {
+      nativeEvent: {
+        identifier: 2,
+        pageX: 100,
+        pageY: 100,
+      },
+    });
+    fireEvent(getByTestId('yaw-drag-area'), 'touchMove', {
+      nativeEvent: {
+        identifier: 2,
+        pageX: 139,
+        pageY: 170,
+      },
+    });
+    fireEvent(getByTestId('move-drag-area'), 'touchEnd', {
+      nativeEvent: {
+        changedTouches: [{ identifier: 1 }],
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockStopRobot).not.toHaveBeenCalled();
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0, 0, 0.6);
+    });
+  });
+
+  it('debe permitir usar el joystick vertical para mover la vista', async () => {
+    const { getByText, getByTestId } = renderControlScreen();
+
+    fireEvent.press(getByText('Vista'));
+    fireEvent(getByTestId('joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 110,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0, 0, 0.6);
+    });
+  });
+
+  it('debe reenviar el comando del joystick cada 100ms aunque el dedo quede quieto', () => {
+    jest.useFakeTimers();
+    const { getByTestId, unmount } = renderControlScreen();
+
+    try {
+      fireEvent(getByTestId('joystick-base'), 'touchStart', {
+        nativeEvent: {
+          identifier: 1,
+          locationX: 149,
+          locationY: 71,
+        },
+      });
+
+      expect(mockMoveRobot).toHaveBeenCalledTimes(1);
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0.23, 0.23, 0);
+
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+
+      expect(mockMoveRobot).toHaveBeenCalledTimes(4);
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0.23, 0.23, 0);
+    } finally {
+      unmount();
+      jest.useRealTimers();
+    }
   });
 
   it('debe mostrar el control de orientacion horizontal', () => {
@@ -220,7 +422,7 @@ describe('ControlScreen (Control de Movimiento)', () => {
 
     fireEvent.press(getByTestId('orientation-toggle'));
 
-    expect(getByText('Poné el celular en horizontal para ver los dos joysticks.')).toBeTruthy();
+    expect(getByText('Poné el celular en horizontal para ver los dos controles.')).toBeTruthy();
     expect(queryByTestId('move-joystick-base')).toBeNull();
   });
 
@@ -267,6 +469,87 @@ describe('ControlScreen (Control de Movimiento)', () => {
 
     expect(getByText('Movimiento')).toBeTruthy();
     expect(getByText('Dirección')).toBeTruthy();
+  });
+
+  it('debe mostrar dos arrastres y no dos joysticks en layout horizontal manual', () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId, getByText, queryByTestId } = renderControlScreen();
+
+    fireEvent.press(getByText('Arrastre'));
+    fireEvent.press(getByTestId('orientation-toggle'));
+
+    expect(queryByTestId('move-joystick-base')).toBeNull();
+    expect(queryByTestId('yaw-joystick-base')).toBeNull();
+    expect(getByTestId('move-drag-area')).toBeTruthy();
+    expect(getByTestId('yaw-drag-area')).toBeTruthy();
+  });
+
+  it('debe combinar los dos joysticks horizontales cuando se usan al mismo tiempo', async () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId } = renderControlScreen();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+    fireEvent(getByTestId('move-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+    fireEvent(getByTestId('yaw-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 2,
+        locationX: 149,
+        locationY: 110,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0.23, 0.23, 0.6);
+    });
+  });
+
+  it('no debe detener si se suelta un joystick horizontal y el otro sigue activo', async () => {
+    ReactNative.Dimensions.set({
+      window: { width: 900, height: 420, scale: 1, fontScale: 1 },
+      screen: { width: 900, height: 420, scale: 1, fontScale: 1 },
+    });
+
+    const { getByTestId } = renderControlScreen();
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+    fireEvent(getByTestId('move-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+    fireEvent(getByTestId('yaw-joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 2,
+        locationX: 149,
+        locationY: 110,
+      },
+    });
+    fireEvent(getByTestId('move-joystick-base'), 'touchEnd', {
+      nativeEvent: {
+        changedTouches: [{ identifier: 1 }],
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockStopRobot).not.toHaveBeenCalled();
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0, 0, 0.6);
+    });
   });
 
   it('debe enviar comandos de postura', async () => {

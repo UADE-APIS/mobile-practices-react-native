@@ -12,6 +12,12 @@ jest.mock('@expo/vector-icons', () => {
   };
 });
 
+jest.mock('../hooks/useRecommendedServerUrl', () => jest.fn(() => ({
+  recommendedUrl: 'http://10.2.2.220:8000',
+  networkState: { type: 'WIFI', isConnected: true, isInternetReachable: true },
+  refreshRecommendedUrl: jest.fn(),
+})));
+
 describe('RegisterScreen', () => {
   const mockRegister = jest.fn();
   const mockNavigate = jest.fn();

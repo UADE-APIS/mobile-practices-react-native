@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,19 +11,63 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { Theme } from '../config/theme';
-import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
+import { isLocalServerUrl, normalizeServerUrl } from '../config/api';
+import useRecommendedServerUrl from '../hooks/useRecommendedServerUrl';
 
 export default function LoginScreen({ navigation }) {
   const { login } = useContext(AuthContext);
   
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
-  const [serverUrl, setServerUrl] = useState(getDefaultServerUrl());
+  const { recommendedUrl, networkState } = useRecommendedServerUrl();
+  const [serverUrl, setServerUrl] = useState(recommendedUrl);
+  const [autoServerUrl, setAutoServerUrl] = useState(true);
+  const [loadedServerUrl, setLoadedServerUrl] = useState(false);
+  const manualServerUrlRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (loadedServerUrl) {
+      return;
+    }
+
+    const loadServerUrl = async () => {
+      try {
+        const savedUrl = await SecureStore.getItemAsync('server_url');
+
+        if (manualServerUrlRef.current) {
+          return;
+        }
+
+        if (savedUrl && isLocalServerUrl(recommendedUrl)) {
+          setServerUrl(normalizeServerUrl(savedUrl));
+          setLoadedServerUrl(true);
+          return;
+        }
+
+        setServerUrl(recommendedUrl);
+        setAutoServerUrl(true);
+      } catch (err) {
+        setServerUrl(recommendedUrl);
+        setAutoServerUrl(true);
+      } finally {
+        setLoadedServerUrl(true);
+      }
+    };
+
+    loadServerUrl();
+  }, [loadedServerUrl, recommendedUrl]);
+
+  useEffect(() => {
+    if (loadedServerUrl && autoServerUrl && !manualServerUrlRef.current && serverUrl !== recommendedUrl) {
+      setServerUrl(recommendedUrl);
+    }
+  }, [autoServerUrl, loadedServerUrl, recommendedUrl, serverUrl]);
 
   const handleLogin = async () => {
     const cleanServerUrl = normalizeServerUrl(serverUrl);
@@ -62,12 +106,32 @@ export default function LoginScreen({ navigation }) {
         {/* Form Fields */}
         <View style={styles.formContainer}>
           <Text style={styles.inputLabel}>Dirección de la API del Robot</Text>
+          <View style={styles.recommendedRow}>
+            <Text style={styles.helperText}>Recomendada: {recommendedUrl}</Text>
+            <Text style={styles.helperText}>Red: {networkState.type || 'UNKNOWN'}</Text>
+            <TouchableOpacity
+              testID="use-recommended-login-api-url"
+              style={styles.recommendedBtn}
+              onPress={() => {
+                manualServerUrlRef.current = false;
+                setAutoServerUrl(true);
+                setServerUrl(recommendedUrl);
+              }}
+            >
+              <MaterialCommunityIcons name="cellphone-arrow-down" size={16} color={Theme.colors.text} />
+              <Text style={styles.recommendedBtnText}>Usar</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.inputWrapper}>
             <MaterialCommunityIcons name="server" size={20} color={Theme.colors.textMuted} style={styles.inputIcon} />
             <TextInput
               style={styles.textInput}
               value={serverUrl}
-              onChangeText={setServerUrl}
+              onChangeText={(value) => {
+                manualServerUrlRef.current = true;
+                setAutoServerUrl(false);
+                setServerUrl(value);
+              }}
               placeholder="http://localhost:8000"
               placeholderTextColor={Theme.colors.textDim}
               autoCapitalize="none"
@@ -180,6 +244,33 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     gap: 12,
+  },
+  recommendedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  helperText: {
+    flex: 1,
+    color: Theme.colors.textMuted,
+    fontSize: 12,
+  },
+  recommendedBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Theme.colors.card,
+    borderRadius: Theme.borderRadius.sm,
+    borderWidth: 1,
+    borderColor: Theme.colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  recommendedBtnText: {
+    color: Theme.colors.text,
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputLabel: {
     fontSize: 12,

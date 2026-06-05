@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import axios from 'axios';
-import { API_TIMEOUT, getApiErrorMessage, normalizeServerUrl, withTimeout } from '../config/api';
+import { getApiErrorMessage, normalizeServerUrl } from '../config/api';
+import { registerOperator, requestAuthToken } from '../services/authApi';
 
 export const AuthContext = createContext(null);
 
@@ -41,15 +41,7 @@ export function AuthProvider({ children }) {
       const cleanServerUrl = normalizeServerUrl(serverUrl);
       const cleanIdentifier = identifier.trim();
 
-      const response = await withTimeout(
-        axios.post(`${cleanServerUrl}/auth/token`, {
-          identifier: cleanIdentifier,
-          password,
-        }, {
-          timeout: API_TIMEOUT,
-        }),
-        'No se pudo conectar con el servidor.'
-      );
+      const response = await requestAuthToken(cleanServerUrl, cleanIdentifier, password);
 
       const { access_token } = response.data;
 
@@ -71,16 +63,7 @@ export function AuthProvider({ children }) {
     try {
       const cleanServerUrl = normalizeServerUrl(serverUrl);
 
-      await withTimeout(
-        axios.post(`${cleanServerUrl}/auth/register`, {
-          username: username.trim(),
-          email: email.trim(),
-          password,
-        }, {
-          timeout: API_TIMEOUT,
-        }),
-        'No se pudo conectar con el servidor.'
-      );
+      await registerOperator(cleanServerUrl, username.trim(), email.trim(), password);
       return { success: true };
     } catch (err) {
       console.error('Registration error:', err);

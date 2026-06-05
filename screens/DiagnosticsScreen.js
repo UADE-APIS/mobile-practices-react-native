@@ -1,39 +1,20 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext } from 'react';
 import {
-  Alert,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { RobotContext } from '../context/RobotContext';
 import { Theme } from '../config/theme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
+import useRecommendedServerUrl from '../hooks/useRecommendedServerUrl';
 
 export default function DiagnosticsScreen() {
-  const { status, serverUrl, setServerUrl, fetchStatus } = useContext(RobotContext);
-  const [apiUrl, setApiUrl] = useState(serverUrl || getDefaultServerUrl());
-  const recommendedUrl = getDefaultServerUrl();
-
-  useEffect(() => {
-    setApiUrl(serverUrl || recommendedUrl);
-  }, [serverUrl, recommendedUrl]);
-
-  const handleSaveServerUrl = async () => {
-    const cleanUrl = normalizeServerUrl(apiUrl);
-
-    if (!cleanUrl) {
-      Alert.alert('URL incompleta', 'Ingresá la dirección de la API.');
-      return;
-    }
-
-    await setServerUrl(cleanUrl);
-    Alert.alert('API actualizada', `La app va a usar ${cleanUrl}`);
-  };
+  const { status, serverUrl, fetchStatus } = useContext(RobotContext);
+  const { recommendedUrl, networkState } = useRecommendedServerUrl();
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -49,22 +30,11 @@ export default function DiagnosticsScreen() {
       <View style={styles.panelCard}>
         <Text style={styles.sectionTitle}>API del backend</Text>
         <Text style={styles.helperText}>URL actual: {serverUrl}</Text>
-        <Text style={styles.helperText}>Sugerida para Expo Go: {recommendedUrl}</Text>
-
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.textInput}
-            value={apiUrl}
-            onChangeText={setApiUrl}
-            placeholder="http://10.2.2.220:8000"
-            placeholderTextColor={Theme.colors.textDim}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <TouchableOpacity testID="save-api-url" style={styles.saveBtn} onPress={handleSaveServerUrl}>
-            <MaterialCommunityIcons name="content-save" size={20} color={Theme.colors.text} />
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.helperText}>Recomendada: {recommendedUrl}</Text>
+        <Text style={styles.helperText}>Red: {networkState.type || 'UNKNOWN'}</Text>
+        <Text style={styles.helperText}>
+          La URL de API solo se cambia antes de iniciar sesión.
+        </Text>
       </View>
       
       <View style={styles.jsonContainer}>
@@ -116,30 +86,6 @@ const styles = StyleSheet.create({
     color: Theme.colors.textMuted,
     fontSize: 12,
     marginBottom: 6,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 8,
-  },
-  textInput: {
-    flex: 1,
-    minHeight: 46,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    borderRadius: Theme.borderRadius.sm,
-    color: Theme.colors.text,
-    backgroundColor: Theme.colors.background,
-    paddingHorizontal: 12,
-  },
-  saveBtn: {
-    width: 46,
-    height: 46,
-    backgroundColor: Theme.colors.accent,
-    borderRadius: Theme.borderRadius.sm,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   refreshBtn: {
     padding: 8,

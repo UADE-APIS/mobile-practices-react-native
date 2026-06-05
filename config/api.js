@@ -1,14 +1,31 @@
 import { NativeModules, Platform } from 'react-native';
 import axios from 'axios';
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
 export const API_TIMEOUT = 10000;
 
-function getBundlerHost() {
-  const scriptURL = NativeModules.SourceCode?.scriptURL || '';
-  const match = scriptURL.match(/^https?:\/\/([^:/]+)/);
+function getHostFromUri(uri) {
+  if (!uri) {
+    return null;
+  }
+
+  const match = String(uri).match(/^(?:[a-z]+:\/\/)?([^:/?]+)/i);
 
   return match?.[1] || null;
+}
+
+function getBundlerHost() {
+  const candidates = [
+    Constants.expoConfig?.hostUri,
+    Constants.manifest?.debuggerHost,
+    Constants.manifest?.hostUri,
+    Constants.manifest?.platform?.hostUri,
+    Constants.linkingUri,
+    NativeModules.SourceCode?.scriptURL,
+  ];
+
+  return candidates.map(getHostFromUri).find(Boolean) || null;
 }
 
 export function getDefaultServerUrl() {
@@ -22,6 +39,10 @@ export function getDefaultServerUrl() {
     return 'http://10.0.2.2:8000';
   }
   return 'http://localhost:8000';
+}
+
+export function isLocalServerUrl(url) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?$/i.test(normalizeServerUrl(url));
 }
 
 export function normalizeServerUrl(url) {
