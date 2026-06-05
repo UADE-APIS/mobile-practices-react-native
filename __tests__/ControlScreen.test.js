@@ -1,6 +1,6 @@
 import React from 'react';
 import * as ReactNative from 'react-native';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import ControlScreen, {
   combineJoystickCommands,
@@ -387,6 +387,34 @@ describe('ControlScreen (Control de Movimiento)', () => {
     await waitFor(() => {
       expect(mockMoveRobot).toHaveBeenCalledWith(0, 0, 0.6);
     });
+  });
+
+  it('debe reenviar el comando del joystick cada 100ms aunque el dedo quede quieto', () => {
+    jest.useFakeTimers();
+    const { getByTestId, unmount } = renderControlScreen();
+
+    try {
+      fireEvent(getByTestId('joystick-base'), 'touchStart', {
+        nativeEvent: {
+          identifier: 1,
+          locationX: 149,
+          locationY: 71,
+        },
+      });
+
+      expect(mockMoveRobot).toHaveBeenCalledTimes(1);
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0.23, 0.23, 0);
+
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+
+      expect(mockMoveRobot).toHaveBeenCalledTimes(4);
+      expect(mockMoveRobot).toHaveBeenLastCalledWith(0.23, 0.23, 0);
+    } finally {
+      unmount();
+      jest.useRealTimers();
+    }
   });
 
   it('debe mostrar el control de orientacion horizontal', () => {

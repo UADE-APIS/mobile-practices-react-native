@@ -13,13 +13,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RobotContext } from '../context/RobotContext';
 import { Theme } from '../config/theme';
+import { useRobotControl } from '../hooks/useRobotControl';
 
 const MAX_LINEAR_SPEED = 0.45;
 const MAX_YAW_SPEED = 1.2;
 const JOYSTICK_SIZE = 220;
 const KNOB_SIZE = 64;
 const JOYSTICK_RADIUS = (JOYSTICK_SIZE - KNOB_SIZE) / 2;
-const MOVE_THROTTLE_MS = 150;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -202,7 +202,6 @@ export default function ControlScreen() {
   const [joystickCommand, setJoystickCommand] = useState({ vx: 0, vy: 0, vyaw: 0 });
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
-  const lastMoveSentAt = useRef(0);
   const latestCommandId = useRef(0);
   const pendingMoveRequests = useRef(new Set());
   const activeMoveTouchId = useRef(null);
@@ -260,9 +259,29 @@ export default function ControlScreen() {
     }
   }, [isConnected, stopAfterPendingMoves]);
 
+  const {
+    commandsEnabledRef,
+    sendCombinedCommand,
+    startContinuousSend,
+    stopContinuousSend,
+  } = useRobotControl({
+    commandsEnabled,
+    combineCommands: combineJoystickCommands,
+    activeMoveCommand,
+    activeYawCommand,
+    latestCommandId,
+    sendMoveRequest,
+    sendStop,
+    setCurrentCommand,
+    setFeedback,
+    setJoystickCommand,
+    getErrorMessage: getApiError,
+  });
+
   useFocusEffect(
     useCallback(() => {
       return () => {
+        stopContinuousSend(false);
         if (isConnected) {
           const commandId = ++latestCommandId.current;
           stopAfterPendingMoves().catch((err) => {
@@ -272,7 +291,7 @@ export default function ControlScreen() {
           });
         }
       };
-    }, [isConnected, stopAfterPendingMoves])
+    }, [isConnected, stopAfterPendingMoves, stopContinuousSend])
   );
 
   const sendMove = async (label, vx, vy, vyaw) => {
@@ -282,6 +301,7 @@ export default function ControlScreen() {
     }
 
     setCommandLoading(label);
+    stopContinuousSend(false);
     const commandId = ++latestCommandId.current;
     try {
       await sendMoveRequest(vx, vy, vyaw);
@@ -300,6 +320,7 @@ export default function ControlScreen() {
 
   const handleStop = async () => {
     setCommandLoading('stop');
+    stopContinuousSend(false);
     await sendStop(true);
     setCommandLoading((current) => current === 'stop' ? null : current);
     setKnobPosition({ x: 0, y: 0 });
@@ -320,6 +341,7 @@ export default function ControlScreen() {
 
     const isStandUp = type === 'standup';
     setCommandLoading(type);
+    stopContinuousSend(false);
     const commandId = ++latestCommandId.current;
     try {
       const request = isStandUp ? standUpRobot : sitDownRobot;
@@ -352,37 +374,13 @@ export default function ControlScreen() {
     }
   };
 
-  const sendTouchCommand = useCallback((label, command) => {
-    const now = Date.now();
-    setJoystickCommand(command);
-
-    if (!commandsEnabled || now - lastMoveSentAt.current < MOVE_THROTTLE_MS) {
-      return;
-    }
-
-    lastMoveSentAt.current = now;
-    const commandId = ++latestCommandId.current;
-    sendMoveRequest(command.vx, command.vy, command.vyaw)
-      .then(() => {
-        if (latestCommandId.current !== commandId) return;
-
-        setCurrentCommand({ label, ...command });
-        setFeedback({ type: 'success', message: `Control por ${label.toLowerCase()} activo.` });
-      })
-      .catch((err) => {
-        if (latestCommandId.current === commandId) {
-          setFeedback({ type: 'error', message: getApiError(err) });
-        }
-      });
-  }, [commandsEnabled, sendMoveRequest]);
   const hasActiveJoystickTouch = useCallback(() => (
     activeMoveTouchId.current !== null || activeYawTouchId.current !== null
   ), []);
 
   const sendCombinedJoystickCommand = useCallback((label) => {
-    const command = combineJoystickCommands(activeMoveCommand.current, activeYawCommand.current);
-    sendTouchCommand(label, command);
-  }, [sendTouchCommand]);
+    sendCombinedCommand(label);
+  }, [sendCombinedCommand]);
 
   const releaseJoystickTouch = useCallback((type, event) => {
     const isMoveTouch = type === 'move';
@@ -402,27 +400,27 @@ export default function ControlScreen() {
       setYawKnobPosition({ x: 0, y: 0 });
     }
 
-    lastMoveSentAt.current = 0;
-
     if (hasActiveJoystickTouch()) {
       setScrollEnabled(false);
+      startContinuousSend(isMoveTouch ? 'Dirección' : 'Joystick');
       sendCombinedJoystickCommand(isMoveTouch ? 'Dirección' : 'Joystick');
       return;
     }
 
     setScrollEnabled(true);
-    sendStop(false);
-  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, sendStop]);
+    stopContinuousSend(true);
+  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend]);
 
   const updateJoystickTouch = useCallback((type, event, shouldAssignTouch = false) => {
-    if (!commandsEnabled) return;
+    if (!commandsEnabledRef.current) return;
 
     const isMoveTouch = type === 'move';
     const activeTouchRef = isMoveTouch ? activeMoveTouchId : activeYawTouchId;
+    const label = isMoveTouch ? 'Joystick' : 'Dirección';
 
     if (shouldAssignTouch) {
       activeTouchRef.current = getTouchIdentifier(event?.nativeEvent);
-      lastMoveSentAt.current = 0;
+      startContinuousSend(label);
     }
 
     if (activeTouchRef.current === null) {
@@ -441,8 +439,8 @@ export default function ControlScreen() {
       activeYawCommand.current = getYawJoystickCommand(position.x);
     }
 
-    sendCombinedJoystickCommand(isMoveTouch ? 'Joystick' : 'Dirección');
-  }, [commandsEnabled, sendCombinedJoystickCommand]);
+    sendCombinedJoystickCommand(label);
+  }, [commandsEnabledRef, sendCombinedJoystickCommand, startContinuousSend]);
 
   const moveJoystickTouchHandlers = useMemo(() => ({
     onTouchStart: (event) => updateJoystickTouch('move', event, true),
@@ -476,29 +474,29 @@ export default function ControlScreen() {
       setYawDragPosition({ x: 0, y: 0 });
     }
 
-    lastMoveSentAt.current = 0;
-
     if (hasActiveJoystickTouch()) {
       setScrollEnabled(false);
+      startContinuousSend(isMoveTouch ? 'Vista' : 'Arrastre');
       sendCombinedJoystickCommand(isMoveTouch ? 'Vista' : 'Arrastre');
       return;
     }
 
     setScrollEnabled(true);
-    sendStop(false);
-  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, sendStop]);
+    stopContinuousSend(true);
+  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend]);
 
   const updateDragTouch = useCallback((type, event, shouldAssignTouch = false) => {
-    if (!commandsEnabled) return;
+    if (!commandsEnabledRef.current) return;
 
     const isMoveTouch = type === 'move';
     const activeTouchRef = isMoveTouch ? activeMoveTouchId : activeYawTouchId;
     const activeOriginRef = isMoveTouch ? activeMoveDragOrigin : activeYawDragOrigin;
+    const label = isMoveTouch ? 'Arrastre' : 'Vista';
 
     if (shouldAssignTouch) {
       activeTouchRef.current = getTouchIdentifier(event?.nativeEvent);
       activeOriginRef.current = getTouchPoint(event?.nativeEvent);
-      lastMoveSentAt.current = 0;
+      startContinuousSend(label);
 
       if (isMoveTouch) {
         setMoveDragPosition({ x: 0, y: 0 });
@@ -528,8 +526,8 @@ export default function ControlScreen() {
       activeYawCommand.current = getYawJoystickCommand(position.x);
     }
 
-    sendCombinedJoystickCommand(isMoveTouch ? 'Arrastre' : 'Vista');
-  }, [commandsEnabled, sendCombinedJoystickCommand]);
+    sendCombinedJoystickCommand(label);
+  }, [commandsEnabledRef, sendCombinedJoystickCommand, startContinuousSend]);
 
   const moveDragTouchHandlers = useMemo(() => ({
     onTouchStart: (event) => updateDragTouch('move', event, true),
@@ -546,6 +544,7 @@ export default function ControlScreen() {
   }), [releaseDragTouch, updateDragTouch]);
 
   const handleControlModeChange = (mode) => {
+    stopContinuousSend(false);
     setControlMode(mode);
     setKnobPosition({ x: 0, y: 0 });
     setYawKnobPosition({ x: 0, y: 0 });
@@ -559,6 +558,7 @@ export default function ControlScreen() {
   };
 
   const handleVerticalJoystickModeChange = (mode) => {
+    stopContinuousSend(false);
     setVerticalJoystickMode(mode);
     setKnobPosition({ x: 0, y: 0 });
     setYawKnobPosition({ x: 0, y: 0 });

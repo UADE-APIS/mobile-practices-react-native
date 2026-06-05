@@ -2,12 +2,12 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import ActionsScreen from '../screens/ActionsScreen';
-import { RobotContext } from '../context/RobotContext';
+import { executeRobotAction, getRobotActions } from '../services/robotApi';
 
-const mockApi = {
-  get: jest.fn(),
-  post: jest.fn(),
-};
+jest.mock('../services/robotApi', () => ({
+  executeRobotAction: jest.fn(),
+  getRobotActions: jest.fn(),
+}));
 
 describe('ActionsScreen', () => {
   beforeEach(() => {
@@ -16,26 +16,22 @@ describe('ActionsScreen', () => {
   });
 
   const renderActionsScreen = () => {
-    return render(
-      <RobotContext.Provider value={{ api: mockApi }}>
-        <ActionsScreen />
-      </RobotContext.Provider>
-    );
+    return render(<ActionsScreen />);
   };
 
   test('carga y dibuja la lista de acciones obtenida de la API', async () => {
-    mockApi.get.mockResolvedValueOnce({ data: { actions: ['stand', 'sit'] } });
+    getRobotActions.mockResolvedValueOnce({ data: { actions: ['stand', 'sit'] } });
 
     const { findByText } = renderActionsScreen();
 
     expect(await findByText('stand')).toBeTruthy();
     expect(await findByText('sit')).toBeTruthy();
-    expect(mockApi.get).toHaveBeenCalledWith('/actions');
+    expect(getRobotActions).toHaveBeenCalled();
   });
 
   test('llama a la función ejecutora al presionar un botón', async () => {
-    mockApi.get.mockResolvedValueOnce({ data: { actions: ['dance'] } });
-    mockApi.post.mockResolvedValueOnce({ data: { success: true } });
+    getRobotActions.mockResolvedValueOnce({ data: { actions: ['dance'] } });
+    executeRobotAction.mockResolvedValueOnce({ data: { success: true } });
 
     const { findByText } = renderActionsScreen();
 
@@ -43,7 +39,7 @@ describe('ActionsScreen', () => {
     fireEvent.press(boton);
 
     await waitFor(() => {
-      expect(mockApi.post).toHaveBeenCalledWith('/action/dance');
+      expect(executeRobotAction).toHaveBeenCalledWith('dance');
     });
   });
 });

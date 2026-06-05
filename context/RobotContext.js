@@ -1,9 +1,19 @@
-import React, { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useMemo, useCallback, useRef } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import axios from 'axios';
 import { AuthContext } from './AuthContext';
-import { API_TIMEOUT, getDefaultServerUrl, normalizeServerUrl } from '../config/api';
+import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 import { addLogEntry, getHistoryList } from '../utils/history';
+import {
+  connectRobotRequest,
+  disconnectRobotRequest,
+  getRobotStatus,
+  moveRobotRequest,
+  robotApi,
+  setRobotApiBaseUrl,
+  sitDownRobotRequest,
+  standUpRobotRequest,
+  stopRobotRequest,
+} from '../services/robotApi';
 
 export const RobotContext = createContext(null);
 
@@ -34,32 +44,29 @@ function getRobotErrorMessage(err, fallback, serverUrl) {
     || fallback;
 }
 
+function logCommand(action, details, success) {
+  addLogEntry(action, details, success).catch((err) => {
+    console.error('Failed to write robot history:', err);
+  });
+}
+
 export function RobotProvider({ children }) {
   const { user, logout } = useContext(AuthContext);
   const [serverUrl, setServerUrlState] = useState(getDefaultServerUrl());
   const [status, setStatus] = useState(DEFAULT_STATUS);
   const [loading, setLoading] = useState(false);
-
-  const api = useMemo(() => axios.create({
-    baseURL: serverUrl,
-    timeout: API_TIMEOUT,
-  }), []);
+  const statusRef = useRef(DEFAULT_STATUS);
+  const explicitDisconnect = useRef(false);
+  const reconnecting = useRef(false);
+  const lastConnectionParams = useRef(null);
 
   useEffect(() => {
-    const interceptor = api.interceptors.request.use(
-      async (config) => {
-        config.baseURL = normalizeServerUrl(serverUrl);
-        const token = await SecureStore.getItemAsync('token');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-      },
-      (error) => Promise.reject(error)
-    );
+    statusRef.current = status;
+  }, [status]);
 
-    return () => api.interceptors.request.eject(interceptor);
-  }, [api, serverUrl]);
+  useEffect(() => {
+    setRobotApiBaseUrl(serverUrl);
+  }, [serverUrl]);
 
   // Load server URL from SecureStore on mount
   useEffect(() => {
@@ -76,11 +83,52 @@ export function RobotProvider({ children }) {
     loadConfig();
   }, [user]);
 
+  const reconnectRobot = useCallback(async (reason) => {
+    if (reconnecting.current || explicitDisconnect.current || !lastConnectionParams.current) {
+      return;
+    }
+
+    reconnecting.current = true;
+    const { robotType, iface } = lastConnectionParams.current;
+    setStatus((currentStatus) => ({
+      ...currentStatus,
+      connection_state: 'connecting',
+      robot_type: robotType,
+      network_interface: iface,
+      last_error: reason || null,
+    }));
+
+    try {
+      await connectRobotRequest(robotType, iface);
+      const response = await getRobotStatus();
+      setStatus(response.data);
+    } catch (err) {
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo reconectar automaticamente con el robot.', serverUrl);
+      setStatus((currentStatus) => ({
+        ...currentStatus,
+        connection_state: 'error',
+        last_error: errorMessage,
+      }));
+    } finally {
+      reconnecting.current = false;
+    }
+  }, [serverUrl]);
+
   const fetchStatus = useCallback(async () => {
     if (!user) return;
     try {
-      const response = await api.get('/status');
-      setStatus(response.data);
+      const response = await getRobotStatus();
+      const nextStatus = response.data;
+      const previousStatus = statusRef.current;
+      setStatus(nextStatus);
+
+      if (
+        previousStatus.connection_state === 'connected'
+        && nextStatus.connection_state !== 'connected'
+        && !explicitDisconnect.current
+      ) {
+        reconnectRobot(nextStatus.last_error || 'Se perdio la conexion con el robot. Intentando reconectar.');
+      }
     } catch (err) {
       console.warn('Error fetching status:', err.message || err);
       if (err.response && err.response.status === 401) {
@@ -89,14 +137,19 @@ export function RobotProvider({ children }) {
           logout();
         }
       } else {
+        const previousStatus = statusRef.current;
+        const errorMessage = getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.', serverUrl);
         setStatus((currentStatus) => ({
           ...currentStatus,
           connection_state: 'error',
-          last_error: getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.', serverUrl),
+          last_error: errorMessage,
         }));
+        if (previousStatus.connection_state === 'connected' && !explicitDisconnect.current) {
+          reconnectRobot(errorMessage);
+        }
       }
     }
-  }, [api, user, logout, serverUrl]);
+  }, [user, logout, serverUrl, reconnectRobot]);
 
   // Poll status periodically when user is logged in
   useEffect(() => {
@@ -111,6 +164,8 @@ export function RobotProvider({ children }) {
 
   const connectRobot = useCallback(async (robotType, iface = 'eth0') => {
     setLoading(true);
+    explicitDisconnect.current = false;
+    lastConnectionParams.current = { robotType, iface };
     setStatus((currentStatus) => ({
       ...currentStatus,
       connection_state: 'connecting',
@@ -119,10 +174,7 @@ export function RobotProvider({ children }) {
       last_error: null,
     }));
     try {
-      const response = await api.post('/connect', {
-        robot_type: robotType,
-        network_interface: iface,
-      });
+      const response = await connectRobotRequest(robotType, iface);
       await addLogEntry('CONNECT', `robot_type=${robotType}, interface=${iface}`, true);
       await fetchStatus();
       return response.data;
@@ -140,12 +192,13 @@ export function RobotProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [api, fetchStatus, serverUrl]);
+  }, [fetchStatus, serverUrl]);
 
   const disconnectRobot = useCallback(async () => {
     setLoading(true);
+    explicitDisconnect.current = true;
     try {
-      const response = await api.post('/disconnect');
+      const response = await disconnectRobotRequest();
       await addLogEntry('DISCONNECT', '', true);
       await fetchStatus();
       return response.data;
@@ -163,39 +216,39 @@ export function RobotProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, [api, fetchStatus, serverUrl]);
+  }, [fetchStatus, serverUrl]);
 
   const moveRobot = useCallback(async (vx, vy, vyaw) => {
     try {
-      const response = await api.post('/move', { vx, vy, vyaw });
-      await addLogEntry('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}`, true);
+      const response = await moveRobotRequest(vx, vy, vyaw);
+      logCommand('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}`, true);
       return response.data;
     } catch (err) {
       const errorMessage = getRobotErrorMessage(err, 'No se pudo enviar el movimiento.', serverUrl);
       err.robotMessage = errorMessage;
-      await addLogEntry('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}, error=${errorMessage}`, false);
+      logCommand('MOVE', `vx=${vx}, vy=${vy}, vyaw=${vyaw}, error=${errorMessage}`, false);
       console.error('Move error:', err);
       throw err;
     }
-  }, [api, serverUrl]);
+  }, [serverUrl]);
 
   const stopRobot = useCallback(async () => {
     try {
-      const response = await api.post('/stop');
-      await addLogEntry('STOP', '', true);
+      const response = await stopRobotRequest();
+      logCommand('STOP', '', true);
       return response.data;
     } catch (err) {
       const errorMessage = getRobotErrorMessage(err, 'No se pudo detener el robot.', serverUrl);
       err.robotMessage = errorMessage;
-      await addLogEntry('STOP', `error=${errorMessage}`, false);
+      logCommand('STOP', `error=${errorMessage}`, false);
       console.error('Stop error:', err);
       throw err;
     }
-  }, [api, serverUrl]);
+  }, [serverUrl]);
 
   const standUpRobot = useCallback(async () => {
     try {
-      const response = await api.post('/standup');
+      const response = await standUpRobotRequest();
       await addLogEntry('STANDUP', '', true);
       return response.data;
     } catch (err) {
@@ -205,11 +258,11 @@ export function RobotProvider({ children }) {
       console.error('Stand up error:', err);
       throw err;
     }
-  }, [api, serverUrl]);
+  }, [serverUrl]);
 
   const sitDownRobot = useCallback(async () => {
     try {
-      const response = await api.post('/sitdown');
+      const response = await sitDownRobotRequest();
       await addLogEntry('SITDOWN', '', true);
       return response.data;
     } catch (err) {
@@ -219,25 +272,36 @@ export function RobotProvider({ children }) {
       console.error('Sit down error:', err);
       throw err;
     }
-  }, [api, serverUrl]);
+  }, [serverUrl]);
+
+  const contextValue = useMemo(() => ({
+    status,
+    loading,
+    serverUrl,
+    connectRobot,
+    disconnectRobot,
+    moveRobot,
+    stopRobot,
+    standUpRobot,
+    sitDownRobot,
+    fetchStatus,
+    getHistoryList,
+    api: robotApi,
+  }), [
+    status,
+    loading,
+    serverUrl,
+    connectRobot,
+    disconnectRobot,
+    moveRobot,
+    stopRobot,
+    standUpRobot,
+    sitDownRobot,
+    fetchStatus,
+  ]);
 
   return (
-    <RobotContext.Provider
-      value={{
-        status,
-        loading,
-        serverUrl,
-        connectRobot,
-        disconnectRobot,
-        moveRobot,
-        stopRobot,
-        standUpRobot,
-        sitDownRobot,
-        fetchStatus,
-        getHistoryList,
-        api,
-      }}
-    >
+    <RobotContext.Provider value={contextValue}>
       {children}
     </RobotContext.Provider>
   );

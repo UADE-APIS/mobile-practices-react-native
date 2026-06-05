@@ -1,13 +1,11 @@
-import React, { useState, useEffect, useContext } from 'react'; 
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ActivityIndicator, FlatList } from 'react-native';
 import { Theme } from '../config/theme';
-import { getApiErrorMessage } from '../config/api'; 
-import { RobotContext } from '../context/RobotContext'; 
+import { getApiErrorMessage } from '../config/api';
+import { executeRobotAction, getRobotActions } from '../services/robotApi';
 import { addLogEntry } from '../utils/history';
 
 export default function ActionsScreen() {
-  const { api } = useContext(RobotContext); 
-  
   const [acciones, setAcciones] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [historialLocal, setHistorialLocal] = useState([]);
@@ -18,7 +16,7 @@ export default function ActionsScreen() {
 
   const fetchAcciones = async () => {
     try {
-      const response = await api.get('/actions');
+      const response = await getRobotActions();
       setAcciones(response.data.actions);
     } catch (error) {
       Alert.alert('Error de red', getApiErrorMessage(error));
@@ -29,7 +27,7 @@ export default function ActionsScreen() {
 
   const ejecutarAccion = async (nombreAccion) => {
     try {
-      const response = await api.post(`/action/${nombreAccion}`);
+      const response = await executeRobotAction(nombreAccion);
       const exito = response.data.success;
       
       if (exito) {
