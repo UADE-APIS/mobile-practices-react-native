@@ -31,13 +31,14 @@ export default function AppNavigator() {
   const getRobotConnectionLabel = () => {
     if (status.connection_state === 'connected') return 'Conectado';
     if (status.connection_state === 'connecting') return 'Conectando';
+    if (status.connection_state === 'reconnecting') return 'Reconectando';
     if (status.connection_state === 'error') return 'Error';
     return 'Desconectado';
   };
 
   const getRobotConnectionColor = () => {
     if (status.connection_state === 'connected') return Theme.colors.success;
-    if (status.connection_state === 'connecting') return Theme.colors.warning;
+    if (status.connection_state === 'connecting' || status.connection_state === 'reconnecting') return Theme.colors.warning;
     if (status.connection_state === 'error') return Theme.colors.error;
     return Theme.colors.textMuted;
   };
@@ -54,7 +55,7 @@ export default function AppNavigator() {
     }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: getRobotConnectionColor() }} />
-        {status.connection_state === 'connecting' && (
+        {(status.connection_state === 'connecting' || status.connection_state === 'reconnecting') && (
           <ActivityIndicator size="small" color={Theme.colors.warning} />
         )}
         <Text style={{

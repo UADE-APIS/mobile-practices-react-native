@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -23,6 +23,13 @@ export default function HomeScreen({ navigation }) {
   const [networkInterface, setNetworkInterface] = useState('eth0');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
+  useEffect(() => {
+    if (status.connection_state === 'connected') {
+      if (status.robot_type) setSelectedRobot(status.robot_type);
+      if (status.network_interface) setNetworkInterface(status.network_interface);
+    }
+  }, [status.connection_state, status.robot_type, status.network_interface]);
+
   const handleConnect = async () => {
     try {
       await connectRobot(selectedRobot, networkInterface);
@@ -44,6 +51,8 @@ export default function HomeScreen({ navigation }) {
   const isConnected = status.connection_state === 'connected';
   const isError = status.connection_state === 'error';
   const isConnecting = status.connection_state === 'connecting';
+  const isReconnecting = status.connection_state === 'reconnecting';
+  const isConfigDisabled = isConnected || isConnecting || isReconnecting;
 
   // Theme accent colors based on selected robot
   const robotAccent = selectedRobot === 'go2' ? Theme.colors.go2 : Theme.colors.g1;
@@ -51,13 +60,14 @@ export default function HomeScreen({ navigation }) {
   const getStatusColor = () => {
     if (isConnected) return Theme.colors.success;
     if (isError) return Theme.colors.error;
-    if (isConnecting) return Theme.colors.warning;
+    if (isConnecting || isReconnecting) return Theme.colors.warning;
     return Theme.colors.textMuted;
   };
 
   const getStatusText = () => {
     if (isConnected) return 'CONECTADO';
     if (isError) return 'ERROR';
+    if (isReconnecting) return 'RECONECTANDO...';
     if (isConnecting) return 'CONECTANDO...';
     return 'DESCONECTADO';
   };
@@ -103,8 +113,8 @@ export default function HomeScreen({ navigation }) {
         )}
       </View>
 
-      {/* Robot Config Panel (disabled when connected) */}
-      <View style={[styles.panelCard, isConnected && styles.disabledCard]}>
+      {/* Robot Config Panel (disabled when connected/connecting/reconnecting) */}
+      <View style={[styles.panelCard, isConfigDisabled && styles.disabledCard]}>
         <Text style={styles.panelTitle}>Configuración de Conexión</Text>
 
         <Text style={styles.inputLabel}>Seleccionar Robot</Text>
@@ -113,10 +123,10 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.robotCard,
               selectedRobot === 'go2' && { borderColor: Theme.colors.go2, backgroundColor: 'rgba(239, 68, 68, 0.1)' },
-              isConnected && selectedRobot !== 'go2' && styles.disabledOption,
+              isConfigDisabled && selectedRobot !== 'go2' && styles.disabledOption,
             ]}
-            onPress={() => !isConnected && setSelectedRobot('go2')}
-            disabled={isConnected}
+            onPress={() => !isConfigDisabled && setSelectedRobot('go2')}
+            disabled={isConfigDisabled}
           >
             <MaterialCommunityIcons
               name="dog"
@@ -133,10 +143,10 @@ export default function HomeScreen({ navigation }) {
             style={[
               styles.robotCard,
               selectedRobot === 'g1' && { borderColor: Theme.colors.g1, backgroundColor: 'rgba(6, 182, 212, 0.1)' },
-              isConnected && selectedRobot !== 'g1' && styles.disabledOption,
+              isConfigDisabled && selectedRobot !== 'g1' && styles.disabledOption,
             ]}
-            onPress={() => !isConnected && setSelectedRobot('g1')}
-            disabled={isConnected}
+            onPress={() => !isConfigDisabled && setSelectedRobot('g1')}
+            disabled={isConfigDisabled}
           >
             <MaterialCommunityIcons
               name="robot-industrial"
@@ -161,14 +171,14 @@ export default function HomeScreen({ navigation }) {
             placeholderTextColor={Theme.colors.textDim}
             autoCapitalize="none"
             autoCorrect={false}
-            editable={!isConnected}
+            editable={!isConfigDisabled}
           />
         </View>
 
         {/* Action Button */}
         {loading ? (
           <ActivityIndicator size="large" color={robotAccent} style={styles.loader} />
-        ) : isConnected ? (
+        ) : (isConnected || isReconnecting) ? (
           <TouchableOpacity style={styles.disconnectBtn} onPress={handleDisconnect}>
             <Text style={styles.btnText}>DESCONECTAR ROBOT</Text>
           </TouchableOpacity>
@@ -176,8 +186,13 @@ export default function HomeScreen({ navigation }) {
           <TouchableOpacity
             style={[styles.connectBtn, { backgroundColor: robotAccent }]}
             onPress={handleConnect}
+            disabled={isConnecting}
           >
-            <Text style={styles.btnText}>CONECTAR ROBOT</Text>
+            {isConnecting ? (
+              <ActivityIndicator size="small" color="#FFF" />
+            ) : (
+              <Text style={styles.btnText}>CONECTAR ROBOT</Text>
+            )}
           </TouchableOpacity>
         )}
       </View>
