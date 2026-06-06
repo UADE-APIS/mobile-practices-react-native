@@ -153,11 +153,11 @@ function getConnectionView(status, robotType) {
     };
   }
 
-  if (status.connection_state === 'connecting') {
+  if (status.connection_state === 'connecting' || status.connection_state === 'reconnecting') {
     return {
       icon: 'robot-happy',
       color: Theme.colors.warning,
-      title: 'Conectando robot',
+      title: status.connection_state === 'reconnecting' ? 'Reconectando robot...' : 'Conectando robot',
       subtitle: 'Esperando confirmación del backend antes de habilitar comandos.',
     };
   }
@@ -603,7 +603,7 @@ export default function ControlScreen() {
             </Text>
             <Text style={styles.statusSubtitle}>{connectionView.subtitle}</Text>
           </View>
-          {status.connection_state === 'connecting' && (
+          {(status.connection_state === 'connecting' || status.connection_state === 'reconnecting') && (
             <ActivityIndicator size="small" color={connectionView.color} />
           )}
         </View>
