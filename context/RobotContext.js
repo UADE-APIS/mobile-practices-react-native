@@ -101,6 +101,7 @@ export function RobotProvider({ children }) {
       isReconnecting.current ||
       explicitDisconnect.current ||
       !lastConnectionParams.current ||
+      !user ||
       reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS
     ) {
       return;
@@ -126,7 +127,7 @@ export function RobotProvider({ children }) {
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
 
-    if (explicitDisconnect.current || !lastConnectionParams.current) {
+    if (explicitDisconnect.current || !lastConnectionParams.current || !user) {
       isReconnecting.current = false;
       return;
     }
@@ -253,6 +254,9 @@ export function RobotProvider({ children }) {
     } else {
       setStatus(DEFAULT_STATUS);
       pollingEnabled.current = false;
+      lastConnectionParams.current = null;
+      reconnectAttempts.current = 0;
+      isReconnecting.current = false;
       if (pollTimeoutRef.current) {
         clearTimeout(pollTimeoutRef.current);
         pollTimeoutRef.current = null;
