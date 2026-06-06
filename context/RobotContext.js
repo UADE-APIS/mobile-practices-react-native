@@ -6,6 +6,7 @@ import { addLogEntry, getHistoryList } from '../utils/history';
 import {
   connectRobotRequest,
   disconnectRobotRequest,
+  executeRobotAction,
   getRobotStatus,
   moveRobotRequest,
   sitDownRobotRequest,
@@ -369,7 +370,12 @@ export function RobotProvider({ children }) {
 
   const standUpRobot = useCallback(async () => {
     try {
-      const response = await standUpRobotRequest();
+      let response;
+      if (statusRef.current.robot_type === 'go2') {
+        response = await executeRobotAction('recovery_stand');
+      } else {
+        response = await standUpRobotRequest();
+      }
       await addLogEntry('STANDUP', '', true);
       return response.data;
     } catch (err) {

@@ -23,6 +23,7 @@ jest.mock('../services/robotApi', () => ({
   stopRobotRequest: jest.fn(),
   standUpRobotRequest: jest.fn(),
   sitDownRobotRequest: jest.fn(),
+  executeRobotAction: jest.fn(),
 }));
 
 describe('RobotContext', () => {
