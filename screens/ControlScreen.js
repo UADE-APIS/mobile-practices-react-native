@@ -14,12 +14,10 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { RobotContext } from '../context/RobotContext';
 import { Theme } from '../config/theme';
 import { useRobotControl } from '../hooks/useRobotControl';
+import VirtualJoystick, { JOYSTICK_RADIUS, JOYSTICK_SIZE } from '../components/VirtualJoystick';
 
 const MAX_LINEAR_SPEED = 0.45;
 const MAX_YAW_SPEED = 1.2;
-const JOYSTICK_SIZE = 220;
-const KNOB_SIZE = 64;
-const JOYSTICK_RADIUS = (JOYSTICK_SIZE - KNOB_SIZE) / 2;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -745,86 +743,34 @@ export default function ControlScreen() {
               <View style={styles.dualJoystickRow}>
                 <View style={styles.dualJoystickColumn}>
                   <Text style={styles.joystickLabel}>Movimiento</Text>
-                  <View
+                  <VirtualJoystick
                     testID="move-joystick-base"
-                    style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
-                    {...moveJoystickTouchHandlers}
-                  >
-                    <View pointerEvents="none" style={styles.joystickCrossVertical} />
-                    <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.joystickKnob,
-                        {
-                          transform: [
-                            { translateX: knobPosition.x },
-                            { translateY: knobPosition.y },
-                          ],
-                        },
-                      ]}
-                    >
-                      <MaterialCommunityIcons name="arrow-all" size={28} color={Theme.colors.text} />
-                    </View>
-                  </View>
+                    disabled={!isConnected}
+                    touchHandlers={moveJoystickTouchHandlers}
+                    knobPosition={knobPosition}
+                    mode="move"
+                  />
                 </View>
                 <View style={styles.dualJoystickColumn}>
                   <Text style={styles.joystickLabel}>Dirección</Text>
-                  <View
+                  <VirtualJoystick
                     testID="yaw-joystick-base"
-                    style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
-                    {...yawJoystickTouchHandlers}
-                  >
-                    <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.joystickKnob,
-                        styles.yawJoystickKnob,
-                        {
-                          transform: [
-                            { translateX: yawKnobPosition.x },
-                            { translateY: 0 },
-                          ],
-                        },
-                      ]}
-                    >
-                      <MaterialCommunityIcons name="rotate-360" size={28} color={Theme.colors.text} />
-                    </View>
-                  </View>
+                    disabled={!isConnected}
+                    touchHandlers={yawJoystickTouchHandlers}
+                    knobPosition={yawKnobPosition}
+                    mode="yaw"
+                  />
                 </View>
               </View>
             ) : controlMode === 'joystick' ? (
               <View style={styles.joystickContainer}>
-                <View
+                <VirtualJoystick
                   testID="joystick-base"
-                  style={[styles.joystickBase, !isConnected && styles.disabledJoystick]}
-                  {...(verticalJoystickMode === 'move' ? moveJoystickTouchHandlers : yawJoystickTouchHandlers)}
-                >
-                  {verticalJoystickMode === 'move' && (
-                    <View pointerEvents="none" style={styles.joystickCrossVertical} />
-                  )}
-                  <View pointerEvents="none" style={styles.joystickCrossHorizontal} />
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.joystickKnob,
-                      verticalJoystickMode === 'yaw' && styles.yawJoystickKnob,
-                      {
-                        transform: [
-                          { translateX: verticalJoystickMode === 'move' ? knobPosition.x : yawKnobPosition.x },
-                          { translateY: verticalJoystickMode === 'move' ? knobPosition.y : 0 },
-                        ],
-                      },
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name={verticalJoystickMode === 'move' ? 'arrow-all' : 'rotate-360'}
-                      size={28}
-                      color={Theme.colors.text}
-                    />
-                  </View>
-                </View>
+                  disabled={!isConnected}
+                  touchHandlers={verticalJoystickMode === 'move' ? moveJoystickTouchHandlers : yawJoystickTouchHandlers}
+                  knobPosition={verticalJoystickMode === 'move' ? knobPosition : yawKnobPosition}
+                  mode={verticalJoystickMode === 'move' ? 'move' : 'yaw'}
+                />
               </View>
             ) : (
               <View style={[styles.dualDragRow, isLandscapeLayout && styles.dualDragRowLandscape]}>
@@ -1167,48 +1113,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textTransform: 'uppercase',
   },
-  joystickBase: {
-    width: JOYSTICK_SIZE,
-    height: JOYSTICK_SIZE,
-    borderRadius: JOYSTICK_SIZE / 2,
-    backgroundColor: Theme.colors.background,
-    borderWidth: 2,
-    borderColor: Theme.colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
   disabledJoystick: {
     opacity: 0.35,
-  },
-  joystickCrossVertical: {
-    position: 'absolute',
-    width: 1,
-    height: '100%',
-    backgroundColor: Theme.colors.border,
-  },
-  joystickCrossHorizontal: {
-    position: 'absolute',
-    width: '100%',
-    height: 1,
-    backgroundColor: Theme.colors.border,
-  },
-  joystickKnob: {
-    width: KNOB_SIZE,
-    height: KNOB_SIZE,
-    borderRadius: KNOB_SIZE / 2,
-    backgroundColor: Theme.colors.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: Theme.colors.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  yawJoystickKnob: {
-    backgroundColor: Theme.colors.info,
-    shadowColor: Theme.colors.info,
   },
   dragArea: {
     height: JOYSTICK_SIZE,
