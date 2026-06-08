@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 const MAX_HISTORY_ITEMS = 20;
 const MAX_HISTORY_BYTES = 1900;
 const MAX_DETAIL_LENGTH = 120;
+let historyWriteQueue = Promise.resolve();
 
 function trimDetails(details) {
   const value = details || '';
@@ -14,14 +15,28 @@ function trimDetails(details) {
 }
 
 function compactHistory(list) {
-  let compacted = list.slice(0, MAX_HISTORY_ITEMS);
-  while (JSON.stringify(compacted).length > MAX_HISTORY_BYTES && compacted.length > 1) {
-    compacted = compacted.slice(0, -1);
+  const compacted = [];
+
+  for (const entry of list.slice(0, MAX_HISTORY_ITEMS)) {
+    const nextCompacted = [...compacted, entry];
+    if (JSON.stringify(nextCompacted).length > MAX_HISTORY_BYTES) {
+      break;
+    }
+    compacted.push(entry);
   }
+
   return compacted;
 }
 
 export async function addLogEntry(commandType, details, success) {
+  historyWriteQueue = historyWriteQueue
+    .catch(() => {})
+    .then(() => writeLogEntry(commandType, details, success));
+
+  return historyWriteQueue;
+}
+
+async function writeLogEntry(commandType, details, success) {
   try {
     const username = await SecureStore.getItemAsync('identifier');
     if (!username) return;

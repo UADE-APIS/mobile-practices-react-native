@@ -1,45 +1,81 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ActivityIndicator, FlatList } from 'react-native';
+import React, { useContext, useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, FlatList } from 'react-native';
 import { Theme } from '../config/theme';
 import { getApiErrorMessage } from '../config/api';
+import { RobotContext } from '../context/RobotContext';
 import { executeRobotAction, getRobotActions } from '../services/robotApi';
 import { addLogEntry } from '../utils/history';
 
 export default function ActionsScreen() {
+  const { status } = useContext(RobotContext);
   const [acciones, setAcciones] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [historialLocal, setHistorialLocal] = useState([]);
+  const [feedback, setFeedback] = useState(null);
+  const isConnected = status.connection_state === 'connected';
 
   useEffect(() => {
-    fetchAcciones();
-  }, []);
+    let isActive = true;
 
-  const fetchAcciones = async () => {
+    if (!isConnected) {
+      setAcciones([]);
+      setFeedback({ type: 'info', message: 'Conectá un robot para cargar acciones disponibles.' });
+      setCargando(false);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    fetchAcciones(() => isActive);
+
+    return () => {
+      isActive = false;
+    };
+  }, [isConnected]);
+
+  const fetchAcciones = async (shouldApplyResult = () => true) => {
+    if (!isConnected) {
+      setCargando(false);
+      return;
+    }
+
+    setCargando(true);
     try {
       const response = await getRobotActions();
-      setAcciones(response.data.actions);
+      if (!shouldApplyResult()) return;
+      setAcciones(response.data.actions || []);
+      setFeedback(null);
     } catch (error) {
-      Alert.alert('Error de red', getApiErrorMessage(error));
+      if (!shouldApplyResult()) return;
+      setFeedback({ type: 'error', message: getApiErrorMessage(error) });
     } finally {
-      setCargando(false);
+      if (shouldApplyResult()) {
+        setCargando(false);
+      }
     }
   };
 
   const ejecutarAccion = async (nombreAccion) => {
+    if (!isConnected) {
+      setFeedback({ type: 'info', message: 'Conectá un robot antes de ejecutar acciones.' });
+      return;
+    }
+
     try {
       const response = await executeRobotAction(nombreAccion);
       const exito = response.data.success;
       
-      if (exito) {
-        Alert.alert('Éxito', `La acción "${nombreAccion}" se ejecutó correctamente.`);
-      } else {
-        Alert.alert('Aviso', `La acción "${nombreAccion}" no se pudo completar.`);
-      }
+      setFeedback({
+        type: exito ? 'success' : 'error',
+        message: exito
+          ? `La acción "${nombreAccion}" se ejecutó correctamente.`
+          : `La acción "${nombreAccion}" no se pudo completar.`,
+      });
 
       await addLogEntry('ACTION', `action=${nombreAccion}`, exito);
       agregarAlHistorial(nombreAccion, exito);
     } catch (error) {
-      Alert.alert('Error', getApiErrorMessage(error));
+      setFeedback({ type: 'error', message: getApiErrorMessage(error) });
       await addLogEntry('ACTION', `action=${nombreAccion}, error=${error.message || 'unknown'}`, false);
       agregarAlHistorial(nombreAccion, false);
     }
@@ -67,15 +103,26 @@ export default function ActionsScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.text}>Acciones Disponibles</Text>
+
+      {feedback && (
+        <View style={[
+          styles.feedback,
+          feedback.type === 'success' && styles.feedbackSuccess,
+          feedback.type === 'error' && styles.feedbackError,
+        ]}>
+          <Text style={styles.feedbackText}>{feedback.message}</Text>
+        </View>
+      )}
       
       <View style={styles.grilla}>
         {acciones.map(accion => (
           <TouchableOpacity 
             key={accion} 
-            style={styles.botonAccion}
+            style={[styles.botonAccion, !isConnected && styles.botonAccionDisabled]}
             onPress={() => ejecutarAccion(accion)}
+            disabled={!isConnected}
           >
-            <Text style={styles.botonTexto}>{accion}</Text>
+            <Text style={[styles.botonTexto, !isConnected && styles.botonTextoDisabled]}>{accion}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -125,6 +172,24 @@ const styles = StyleSheet.create({
     color: Theme.colors.textMuted,
     marginTop: 8,
   },
+  feedback: {
+    backgroundColor: Theme.colors.card,
+    borderWidth: 1,
+    borderColor: Theme.colors.info,
+    borderRadius: Theme.borderRadius.sm,
+    padding: 12,
+    marginBottom: 16,
+  },
+  feedbackSuccess: {
+    borderColor: Theme.colors.success,
+  },
+  feedbackError: {
+    borderColor: Theme.colors.error,
+  },
+  feedbackText: {
+    color: Theme.colors.text,
+    fontSize: 14,
+  },
   grilla: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -142,10 +207,17 @@ const styles = StyleSheet.create({
     minWidth: '40%',
     alignItems: 'center',
   },
+  botonAccionDisabled: {
+    opacity: 0.5,
+    borderColor: Theme.colors.border,
+  },
   botonTexto: {
     color: Theme.colors.text,
     fontWeight: 'bold',
     textTransform: 'capitalize',
+  },
+  botonTextoDisabled: {
+    color: Theme.colors.textDim,
   },
   historialContainer: {
     flex: 1,
