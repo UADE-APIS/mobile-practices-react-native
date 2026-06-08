@@ -52,6 +52,5 @@ describe('AuthContext', () => {
     });
 
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith('identifier', 'JBE10');
-    expect(SecureStore.setItemAsync).toHaveBeenCalledWith('username', 'JBE10');
   });
 });

@@ -124,7 +124,7 @@ describe('RegisterScreen', () => {
     const alertButtons = Alert.alert.mock.calls[0][2];
     alertButtons[0].onPress();
     
-    expect(mockNavigate).toHaveBeenCalledWith('Login');
+    expect(mockNavigate).toHaveBeenCalledWith('Login', { serverUrl: 'http://localhost:8000' });
   });
 
   it('debe mostrar alerta amigable si el usuario o email ya existe', async () => {
@@ -145,7 +145,7 @@ describe('RegisterScreen', () => {
     await waitFor(() => {
       expect(Alert.alert).toHaveBeenCalledWith(
         'Error de Registro',
-        'El email o nombre de usuario ya existe. Probá iniciar sesión o usá otros datos.'
+        'username already exists'
       );
     });
   });

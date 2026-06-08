@@ -19,7 +19,7 @@ import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 export default function LoginScreen({ route, navigation }) {
   const { login } = useContext(AuthContext);
   
-  const routeServerUrl = route.params?.serverUrl;
+  const routeServerUrl = route?.params?.serverUrl;
 
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -28,10 +28,10 @@ export default function LoginScreen({ route, navigation }) {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
-    if (route.params?.serverUrl) {
+    if (route?.params?.serverUrl) {
       setServerUrl(route.params.serverUrl);
     }
-  }, [route.params?.serverUrl]);
+  }, [route?.params?.serverUrl]);
 
   const handleLogin = async () => {
     const cleanServerUrl = normalizeServerUrl(serverUrl);
