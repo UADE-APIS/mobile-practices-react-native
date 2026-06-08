@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   StyleSheet,
   Text,
@@ -14,8 +14,7 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { Theme } from '../config/theme';
-import { normalizeServerUrl } from '../config/api';
-import useRecommendedServerUrl from '../hooks/useRecommendedServerUrl';
+import { getDefaultServerUrl, normalizeServerUrl } from '../config/api';
 
 export default function RegisterScreen({ route, navigation }) {
   const { register } = useContext(AuthContext);
@@ -25,17 +24,14 @@ export default function RegisterScreen({ route, navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const { recommendedUrl, networkState } = useRecommendedServerUrl();
-  const [serverUrl, setServerUrl] = useState(routeServerUrl || recommendedUrl);
-  const [autoServerUrl, setAutoServerUrl] = useState(!routeServerUrl);
+  const [serverUrl, setServerUrl] = useState(routeServerUrl || getDefaultServerUrl());
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  useEffect(() => {
-    if (autoServerUrl) {
-      setServerUrl(recommendedUrl);
-    }
-  }, [autoServerUrl, recommendedUrl]);
+  const isValidEmail = (emailStr) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(emailStr);
+  };
 
   const handleRegister = async () => {
     const cleanServerUrl = normalizeServerUrl(serverUrl);
@@ -44,6 +40,16 @@ export default function RegisterScreen({ route, navigation }) {
 
     if (!cleanUsername || !cleanEmail || !password || !confirmPassword || !cleanServerUrl) {
       Alert.alert('Campos incompletos', 'Por favor completa todos los campos.');
+      return;
+    }
+
+    if (cleanUsername.length < 3) {
+      Alert.alert('Nombre de usuario inválido', 'El nombre de usuario debe tener al menos 3 caracteres.');
+      return;
+    }
+
+    if (!isValidEmail(cleanEmail)) {
+      Alert.alert('Correo inválido', 'Por favor ingresa una dirección de correo electrónico válida.');
       return;
     }
 
@@ -58,20 +64,11 @@ export default function RegisterScreen({ route, navigation }) {
       Alert.alert(
         'Registro Exitoso',
         'Operador registrado con éxito. Ya podés iniciar sesión.',
-        [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
+        [{ text: 'OK', onPress: () => navigation.navigate('Login', { serverUrl: cleanServerUrl }) }]
       );
     } catch (err) {
-      const message = err.message || '';
-      const duplicateMessage = message.toLowerCase().includes('exists')
-        || message.toLowerCase().includes('exist')
-        || message.toLowerCase().includes('duplicate')
-        || message.toLowerCase().includes('already')
-        || message.toLowerCase().includes('registrado')
-        || message.toLowerCase().includes('existe')
-        ? 'El email o nombre de usuario ya existe. Probá iniciar sesión o usá otros datos.'
-        : message;
-
-      Alert.alert('Error de Registro', duplicateMessage);
+      const message = err.message || 'No se pudo completar el registro.';
+      Alert.alert('Error de Registro', message);
     } finally {
       setLoading(false);
     }
@@ -85,30 +82,12 @@ export default function RegisterScreen({ route, navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
         <View style={styles.formContainer}>
           <Text style={styles.inputLabel}>Dirección de la API del Robot</Text>
-          <View style={styles.recommendedRow}>
-            <Text style={styles.helperText}>Recomendada: {recommendedUrl}</Text>
-            <Text style={styles.helperText}>Red: {networkState.type || 'UNKNOWN'}</Text>
-            <TouchableOpacity
-              testID="use-recommended-register-api-url"
-              style={styles.recommendedBtn}
-              onPress={() => {
-                setAutoServerUrl(true);
-                setServerUrl(recommendedUrl);
-              }}
-            >
-              <MaterialCommunityIcons name="cellphone-arrow-down" size={16} color={Theme.colors.text} />
-              <Text style={styles.recommendedBtnText}>Usar</Text>
-            </TouchableOpacity>
-          </View>
           <View style={styles.inputWrapper}>
             <MaterialCommunityIcons name="server" size={20} color={Theme.colors.textMuted} style={styles.inputIcon} />
             <TextInput
               style={styles.textInput}
               value={serverUrl}
-              onChangeText={(value) => {
-                setAutoServerUrl(false);
-                setServerUrl(value);
-              }}
+              onChangeText={setServerUrl}
               placeholder="http://localhost:8000"
               placeholderTextColor={Theme.colors.textDim}
               autoCapitalize="none"
@@ -182,7 +161,6 @@ export default function RegisterScreen({ route, navigation }) {
             />
           </View>
 
-          {/* Register Button */}
           {loading ? (
             <ActivityIndicator size="large" color={Theme.colors.accent} style={styles.loader} />
           ) : (
@@ -191,10 +169,9 @@ export default function RegisterScreen({ route, navigation }) {
             </TouchableOpacity>
           )}
 
-          {/* Login Link */}
           <TouchableOpacity 
             style={styles.loginLink} 
-            onPress={() => navigation.navigate('Login')}
+            onPress={() => navigation.navigate('Login', { serverUrl })}
           >
             <Text style={styles.loginLinkText}>
               ¿Ya tenés cuenta? <Text style={styles.loginLinkBold}>Inicia sesión acá</Text>
@@ -218,33 +195,6 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     gap: 12,
-  },
-  recommendedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  helperText: {
-    flex: 1,
-    color: Theme.colors.textMuted,
-    fontSize: 12,
-  },
-  recommendedBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Theme.colors.card,
-    borderRadius: Theme.borderRadius.sm,
-    borderWidth: 1,
-    borderColor: Theme.colors.border,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  recommendedBtnText: {
-    color: Theme.colors.text,
-    fontSize: 12,
-    fontWeight: '700',
   },
   inputLabel: {
     fontSize: 12,

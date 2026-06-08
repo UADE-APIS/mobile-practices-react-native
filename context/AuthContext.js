@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
-import { getApiErrorMessage, normalizeServerUrl } from '../config/api';
+import axios from 'axios';
+import { getApiErrorMessage, normalizeServerUrl, API_TIMEOUT } from '../config/api';
 import { registerOperator, requestAuthToken } from '../services/authApi';
 
 export const AuthContext = createContext(null);
@@ -9,22 +10,30 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is already logged in on mount
   useEffect(() => {
     const bootstrapAsync = async () => {
       try {
         const token = await SecureStore.getItemAsync('token');
         const identifier = await SecureStore.getItemAsync('identifier');
-        const email = await SecureStore.getItemAsync('email');
-        const username = await SecureStore.getItemAsync('username');
-        const savedIdentifier = identifier || username || email;
+        const serverUrl = await SecureStore.getItemAsync('server_url');
         
-        if (token && savedIdentifier) {
-          setUser({
-            identifier: savedIdentifier,
-            email,
-            username: username || savedIdentifier,
-          });
+        if (token && identifier && serverUrl) {
+          try {
+            await axios.get(`${serverUrl}/status`, {
+              headers: { Authorization: `Bearer ${token}` },
+              timeout: API_TIMEOUT
+            });
+            setUser({ identifier, username: identifier });
+          } catch (verifyErr) {
+            if (verifyErr.response && verifyErr.response.status === 401) {
+              await SecureStore.deleteItemAsync('token');
+              await SecureStore.deleteItemAsync('identifier');
+              await SecureStore.deleteItemAsync('server_url');
+              setUser(null);
+            } else {
+              setUser({ identifier, username: identifier });
+            }
+          }
         }
       } catch (e) {
         console.error('Failed to load login state from SecureStore:', e);
@@ -42,13 +51,11 @@ export function AuthProvider({ children }) {
       const cleanIdentifier = identifier.trim();
 
       const response = await requestAuthToken(cleanServerUrl, cleanIdentifier, password);
-
       const { access_token } = response.data;
 
+      // Consolidación de claves (Bug 7)
       await SecureStore.setItemAsync('token', access_token);
       await SecureStore.setItemAsync('identifier', cleanIdentifier);
-      await SecureStore.setItemAsync('username', cleanIdentifier);
-      await SecureStore.deleteItemAsync('email');
       await SecureStore.setItemAsync('server_url', cleanServerUrl);
 
       setUser({ identifier: cleanIdentifier, username: cleanIdentifier });
@@ -62,7 +69,6 @@ export function AuthProvider({ children }) {
   const register = async (username, email, password, serverUrl) => {
     try {
       const cleanServerUrl = normalizeServerUrl(serverUrl);
-
       await registerOperator(cleanServerUrl, username.trim(), email.trim(), password);
       return { success: true };
     } catch (err) {
@@ -75,8 +81,7 @@ export function AuthProvider({ children }) {
     try {
       await SecureStore.deleteItemAsync('token');
       await SecureStore.deleteItemAsync('identifier');
-      await SecureStore.deleteItemAsync('email');
-      await SecureStore.deleteItemAsync('username');
+      await SecureStore.deleteItemAsync('server_url');
       setUser(null);
     } catch (e) {
       console.error('Logout error:', e);
