@@ -32,4 +32,27 @@ describe('history utils', () => {
     expect(savedHistory.length).toBeLessThanOrEqual(20);
     expect(savedHistory[0].details.length).toBeLessThanOrEqual(120);
   });
+
+  it('debe serializar escrituras concurrentes para no perder registros', async () => {
+    const storage = {
+      identifier: 'operator',
+    };
+
+    SecureStore.getItemAsync.mockImplementation(async (key) => storage[key] || null);
+    SecureStore.setItemAsync.mockImplementation(async (key, value) => {
+      storage[key] = value;
+    });
+
+    await Promise.all([
+      addLogEntry('MOVE', 'vx=0.45', true),
+      addLogEntry('STOP', '', true),
+    ]);
+
+    const savedHistory = JSON.parse(storage.history_operator);
+    const commandTypes = savedHistory.map((item) => item.command_type);
+
+    expect(commandTypes).toContain('MOVE');
+    expect(commandTypes).toContain('STOP');
+    expect(savedHistory).toHaveLength(2);
+  });
 });
