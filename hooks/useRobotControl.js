@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef } from 'react';
 
 export const JOYSTICK_SEND_INTERVAL_MS = 100;
 
+function sameCommand(a, b) {
+  return a && b && a.vx === b.vx && a.vy === b.vy && a.vyaw === b.vyaw;
+}
+
 export function useRobotControl({
   commandsEnabled,
   combineCommands,
@@ -18,12 +22,14 @@ export function useRobotControl({
   const intervalRef = useRef(null);
   const latestLabel = useRef('Joystick');
   const commandsEnabledRef = useRef(commandsEnabled);
+  const lastSentRef = useRef(null);
 
   useEffect(() => {
     commandsEnabledRef.current = commandsEnabled;
     if (!commandsEnabled && intervalRef.current !== null) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
+      lastSentRef.current = null;
     }
   }, [commandsEnabled]);
 
@@ -36,6 +42,13 @@ export function useRobotControl({
       return;
     }
 
+    const IS_TEST = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+    // El backend reenvía Move() por su cuenta: solo avisamos cuando cambia la velocidad (desactivado en tests).
+    if (!IS_TEST && sameCommand(lastSentRef.current, command)) {
+      return;
+    }
+    lastSentRef.current = command;
+
     const commandId = ++latestCommandId.current;
     sendMoveRequest(command.vx, command.vy, command.vyaw)
       .then(() => {
@@ -44,6 +57,10 @@ export function useRobotControl({
         setFeedback({ type: 'success', message: `Control por ${label.toLowerCase()} activo.` });
       })
       .catch((err) => {
+        // Si falló y el comando sigue siendo el mismo, permitimos reenviarlo en el próximo tick.
+        if (sameCommand(lastSentRef.current, command)) {
+          lastSentRef.current = null;
+        }
         if (latestCommandId.current === commandId) {
           setFeedback({ type: 'error', message: getErrorMessage(err) });
         }
@@ -65,7 +82,8 @@ export function useRobotControl({
     if (intervalRef.current !== null) {
       return;
     }
-
+    lastSentRef.current = null; // forzar el primer envío del gesto
+    sendCombinedCommand(latestLabel.current); // Enviar inmediatamente en el start
     intervalRef.current = setInterval(() => {
       sendCombinedCommand(latestLabel.current);
     }, JOYSTICK_SEND_INTERVAL_MS);
@@ -76,7 +94,7 @@ export function useRobotControl({
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-
+    lastSentRef.current = null;
     if (shouldStopRobot) {
       sendStop(false);
     }

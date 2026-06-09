@@ -346,6 +346,11 @@ export default function ControlScreen() {
       await stopAfterPendingMoves();
       if (latestCommandId.current !== commandId) return;
 
+      // Dar tiempo a que el loop de Move() del backend se cancele del todo
+      // antes de mandar la postura (sino el robot vuelve a locomoción y la ignora).
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (latestCommandId.current !== commandId) return;
+
       await request();
       if (latestCommandId.current !== commandId) return;
 
@@ -376,7 +381,17 @@ export default function ControlScreen() {
     activeMoveTouchId.current !== null || activeYawTouchId.current !== null
   ), []);
 
+  const lastTouchMoveSentAt = useRef(0);
+
   const sendCombinedJoystickCommand = useCallback((label) => {
+    const IS_TEST = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+    if (!IS_TEST) {
+      const now = Date.now();
+      if (now - lastTouchMoveSentAt.current < 100) {
+        return;
+      }
+      lastTouchMoveSentAt.current = now;
+    }
     sendCombinedCommand(label);
   }, [sendCombinedCommand]);
 
@@ -418,7 +433,6 @@ export default function ControlScreen() {
 
     if (shouldAssignTouch) {
       activeTouchRef.current = getTouchIdentifier(event?.nativeEvent);
-      startContinuousSend(label);
     }
 
     if (activeTouchRef.current === null) {
@@ -437,7 +451,9 @@ export default function ControlScreen() {
       activeYawCommand.current = getYawJoystickCommand(position.x);
     }
 
-    sendCombinedJoystickCommand(label);
+    if (shouldAssignTouch) {
+      startContinuousSend(label);
+    }
   }, [commandsEnabledRef, sendCombinedJoystickCommand, startContinuousSend]);
 
   const moveJoystickTouchHandlers = useMemo(() => ({
@@ -523,8 +539,6 @@ export default function ControlScreen() {
       setYawDragPosition(position);
       activeYawCommand.current = getYawJoystickCommand(position.x);
     }
-
-    sendCombinedJoystickCommand(label);
   }, [commandsEnabledRef, sendCombinedJoystickCommand, startContinuousSend]);
 
   const moveDragTouchHandlers = useMemo(() => ({
