@@ -541,9 +541,14 @@ export default function ControlScreen() {
     onTouchCancel: (event) => releaseDragTouch('yaw', event),
   }), [releaseDragTouch, updateDragTouch]);
 
-  const handleControlModeChange = (mode) => {
-    stopContinuousSend(false);
-    setControlMode(mode);
+  const resetTouchControls = useCallback(() => {
+    const hasActiveCommand = currentCommand !== null
+      || activeMoveTouchId.current !== null
+      || activeYawTouchId.current !== null
+      || Object.values(activeMoveCommand.current).some((value) => value !== 0)
+      || Object.values(activeYawCommand.current).some((value) => value !== 0);
+
+    stopContinuousSend(hasActiveCommand);
     setKnobPosition({ x: 0, y: 0 });
     setYawKnobPosition({ x: 0, y: 0 });
     setMoveDragPosition({ x: 0, y: 0 });
@@ -553,18 +558,26 @@ export default function ControlScreen() {
     activeYawTouchId.current = null;
     activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
     activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+    setScrollEnabled(true);
+  }, [currentCommand, stopContinuousSend]);
+
+  const handleControlModeChange = (mode) => {
+    if (mode === controlMode) return;
+
+    resetTouchControls();
+    setControlMode(mode);
   };
 
   const handleVerticalJoystickModeChange = (mode) => {
-    stopContinuousSend(false);
+    if (mode === verticalJoystickMode) return;
+
+    resetTouchControls();
     setVerticalJoystickMode(mode);
-    setKnobPosition({ x: 0, y: 0 });
-    setYawKnobPosition({ x: 0, y: 0 });
-    setJoystickCommand({ vx: 0, vy: 0, vyaw: 0 });
-    activeMoveTouchId.current = null;
-    activeYawTouchId.current = null;
-    activeMoveCommand.current = { vx: 0, vy: 0, vyaw: 0 };
-    activeYawCommand.current = { vx: 0, vy: 0, vyaw: 0 };
+  };
+
+  const handleControlLayoutChange = () => {
+    resetTouchControls();
+    setControlLayout((layout) => layout === 'vertical' ? 'horizontal' : 'vertical');
   };
 
   const renderCommandButton = (label, icon, vx, vy, vyaw, style) => (
@@ -685,7 +698,7 @@ export default function ControlScreen() {
               <TouchableOpacity
                 testID="orientation-toggle"
                 style={[styles.orientationButton, wantsLandscapeLayout && styles.orientationButtonActive]}
-                onPress={() => setControlLayout((layout) => layout === 'vertical' ? 'horizontal' : 'vertical')}
+                onPress={handleControlLayoutChange}
               >
                 <MaterialCommunityIcons
                   name={isLandscapeLayout ? 'phone-rotate-portrait' : 'phone-rotate-landscape'}

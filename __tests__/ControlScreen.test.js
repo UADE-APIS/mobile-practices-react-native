@@ -242,6 +242,48 @@ describe('ControlScreen (Control de Movimiento)', () => {
     expect(getByTestId('yaw-drag-area')).toBeTruthy();
   });
 
+  it('debe detener el robot antes de cambiar el modo de control', async () => {
+    const { getByTestId, getByText } = renderControlScreen();
+
+    fireEvent(getByTestId('joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0.23, 0.23, 0);
+    });
+
+    fireEvent.press(getByText('Arrastre'));
+
+    await waitFor(() => {
+      expect(mockStopRobot).toHaveBeenCalled();
+    });
+  });
+
+  it('no debe detener el robot al tocar el modo de control ya seleccionado', async () => {
+    const { getByTestId, getAllByText } = renderControlScreen();
+
+    fireEvent(getByTestId('joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0.23, 0.23, 0);
+    });
+
+    fireEvent.press(getAllByText('Joystick')[0]);
+
+    expect(mockStopRobot).not.toHaveBeenCalled();
+  });
+
   it('debe mover con el arrastre de movimiento', async () => {
     const { getByTestId, getByText } = renderControlScreen();
 
@@ -389,6 +431,28 @@ describe('ControlScreen (Control de Movimiento)', () => {
     });
   });
 
+  it('debe detener el robot antes de cambiar el joystick entre movimiento y vista', async () => {
+    const { getByText, getByTestId } = renderControlScreen();
+
+    fireEvent(getByTestId('joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0.23, 0.23, 0);
+    });
+
+    fireEvent.press(getByText('Vista'));
+
+    await waitFor(() => {
+      expect(mockStopRobot).toHaveBeenCalled();
+    });
+  });
+
   it('debe reenviar el comando del joystick cada 100ms aunque el dedo quede quieto', () => {
     jest.useFakeTimers();
     const { getByTestId, unmount } = renderControlScreen();
@@ -424,6 +488,28 @@ describe('ControlScreen (Control de Movimiento)', () => {
 
     expect(getByText('Poné el celular en horizontal para ver los dos controles.')).toBeTruthy();
     expect(queryByTestId('move-joystick-base')).toBeNull();
+  });
+
+  it('debe detener el robot antes de cambiar el layout del control', async () => {
+    const { getByTestId } = renderControlScreen();
+
+    fireEvent(getByTestId('joystick-base'), 'touchStart', {
+      nativeEvent: {
+        identifier: 1,
+        locationX: 149,
+        locationY: 71,
+      },
+    });
+
+    await waitFor(() => {
+      expect(mockMoveRobot).toHaveBeenCalledWith(0.23, 0.23, 0);
+    });
+
+    fireEvent.press(getByTestId('orientation-toggle'));
+
+    await waitFor(() => {
+      expect(mockStopRobot).toHaveBeenCalled();
+    });
   });
 
   it('no debe cambiar el layout automaticamente al girar el celular', () => {
