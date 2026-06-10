@@ -13,7 +13,6 @@ export function getRobotStatus() {
 export function connectRobotRequest(robotType, iface) {
   return robotApi.post('/connect', {
     robot_type: robotType,
-    network_interface: iface,
   });
 }
 

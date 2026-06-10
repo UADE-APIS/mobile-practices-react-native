@@ -54,7 +54,7 @@ export function RobotProvider({ children }) {
   const [serverUrl, setServerUrlState] = useState(getDefaultServerUrl());
   const [status, setStatus] = useState(DEFAULT_STATUS);
   const [loading, setLoading] = useState(false);
-  
+
   const statusRef = useRef(DEFAULT_STATUS);
   const explicitDisconnect = useRef(false);
   const lastConnectionParams = useRef(null);
@@ -110,7 +110,7 @@ export function RobotProvider({ children }) {
 
     isReconnecting.current = true;
     const { robotType, iface } = lastConnectionParams.current;
-    
+
     setStatus((currentStatus) => ({
       ...currentStatus,
       connection_state: 'reconnecting',
@@ -141,9 +141,18 @@ export function RobotProvider({ children }) {
         await fetchStatusRef.current();
       }
     } catch (err) {
+      // 409 = el robot ya estaba conectado en el backend: no es un fallo real.
+      if (err.response && err.response.status === 409) {
+        reconnectAttempts.current = 0;
+        isReconnecting.current = false;
+        if (fetchStatusRef.current) {
+          await fetchStatusRef.current();
+        }
+        return;
+      }
       const errorMessage = getRobotErrorMessage(err, 'No se pudo reconectar automaticamente con el robot.', serverUrl);
       reconnectAttempts.current += 1;
-      
+
       setStatus((currentStatus) => ({
         ...currentStatus,
         connection_state: 'error',
@@ -151,7 +160,7 @@ export function RobotProvider({ children }) {
       }));
       isReconnecting.current = false;
     }
-  }, [serverUrl]);
+  }, [user, logout, serverUrl, reconnectRobot]);
 
   const scheduleNextPoll = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -184,7 +193,7 @@ export function RobotProvider({ children }) {
   }, [scheduleNextPoll]);
 
   const fetchStatus = useCallback(async () => {
-    if (!user) return;
+    if (!user || isReconnecting.current || statusRef.current.connection_state === 'connecting') return;
     try {
       const response = await getRobotStatus();
       const nextStatus = response.data;
@@ -224,22 +233,28 @@ export function RobotProvider({ children }) {
         if (logout) {
           logout();
         }
-      } else {
-        const errorMessage = getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.', serverUrl);
-        setStatus((currentStatus) => ({
-          ...currentStatus,
-          connection_state: 'error',
-          last_error: errorMessage,
-        }));
-        
-        if (
-          lastConnectionParams.current !== null &&
-          !explicitDisconnect.current &&
-          !isReconnecting.current &&
-          reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
-        ) {
-          reconnectRobot(errorMessage);
-        }
+        return;
+      }
+
+      // Tolerar fallos transitorios de red: no marcar error ni reconectar por un solo poll fallido.
+      if (consecutiveFailures.current < 3) {
+        return;
+      }
+
+      const errorMessage = getRobotErrorMessage(err, 'No se pudo consultar el estado del robot.', serverUrl);
+      setStatus((currentStatus) => ({
+        ...currentStatus,
+        connection_state: 'error',
+        last_error: errorMessage,
+      }));
+
+      if (
+        lastConnectionParams.current !== null &&
+        !explicitDisconnect.current &&
+        !isReconnecting.current &&
+        reconnectAttempts.current < MAX_RECONNECT_ATTEMPTS
+      ) {
+        reconnectRobot(errorMessage);
       }
     }
   }, [user, logout, serverUrl, reconnectRobot]);
@@ -285,8 +300,8 @@ export function RobotProvider({ children }) {
     }));
     try {
       const response = await connectRobotRequest(robotType, iface);
-      await addLogEntry('CONNECT', `robot_type=${robotType}, interface=${iface}`, true);
-      
+      await addLogEntry('CONNECT', `robot_type=${robotType} `, true);
+
       pollingEnabled.current = true;
       if (scheduleNextPollRef.current) {
         scheduleNextPollRef.current();
@@ -295,6 +310,18 @@ export function RobotProvider({ children }) {
       await fetchStatus();
       return response.data;
     } catch (err) {
+      if (err.response && err.response.status === 409 && err.response.data?.error === 'ALREADY_CONNECTED') {
+        await addLogEntry('CONNECT', `robot_type=${robotType} (already connected)`, true);
+        pollingEnabled.current = true;
+        if (scheduleNextPollRef.current) {
+          scheduleNextPollRef.current();
+        }
+        await fetchStatus();
+        return { success: true, robot_type: robotType, already_connected: true };
+      }
+
+      lastConnectionParams.current = null;
+
       const errorMessage = getRobotErrorMessage(err, 'No se pudo establecer la conexión con el robot.', serverUrl);
       err.robotMessage = errorMessage;
       await addLogEntry('CONNECT', `robot_type=${robotType}, interface=${iface}, error=${errorMessage}`, false);
@@ -370,12 +397,7 @@ export function RobotProvider({ children }) {
 
   const standUpRobot = useCallback(async () => {
     try {
-      let response;
-      if (statusRef.current.robot_type === 'go2') {
-        response = await executeRobotAction('recovery_stand');
-      } else {
-        response = await standUpRobotRequest();
-      }
+      const response = await standUpRobotRequest();
       await addLogEntry('STANDUP', '', true);
       return response.data;
     } catch (err) {
