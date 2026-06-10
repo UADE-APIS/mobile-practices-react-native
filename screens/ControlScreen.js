@@ -345,7 +345,16 @@ export default function ControlScreen() {
     const commandId = ++latestCommandId.current;
     try {
       const request = isStandUp ? standUpRobot : sitDownRobot;
-      await stopAfterPendingMoves();
+      try {
+        await stopAfterPendingMoves();
+      } catch (stopErr) {
+        console.warn('Frenado previo falló (posiblemente porque el robot ya estaba acostado/damp):', stopErr);
+      }
+      if (latestCommandId.current !== commandId) return;
+
+      // Dar tiempo a que el loop de Move() del backend se cancele del todo
+      // antes de mandar la postura (sino el robot vuelve a locomoción y la ignora).
+      await new Promise((resolve) => setTimeout(resolve, 250));
       if (latestCommandId.current !== commandId) return;
 
       await request();
@@ -408,8 +417,9 @@ export default function ControlScreen() {
     }
 
     setScrollEnabled(true);
-    stopContinuousSend(true);
-  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend]);
+    const shouldStop = commandsEnabledRef.current;
+    stopContinuousSend(shouldStop);
+  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend, commandsEnabledRef]);
 
   const updateJoystickTouch = useCallback((type, event, shouldAssignTouch = false) => {
     if (!commandsEnabledRef.current) return;
@@ -482,8 +492,9 @@ export default function ControlScreen() {
     }
 
     setScrollEnabled(true);
-    stopContinuousSend(true);
-  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend]);
+    const shouldStop = commandsEnabledRef.current;
+    stopContinuousSend(shouldStop);
+  }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend, commandsEnabledRef]);
 
   const updateDragTouch = useCallback((type, event, shouldAssignTouch = false) => {
     if (!commandsEnabledRef.current) return;
@@ -601,7 +612,18 @@ export default function ControlScreen() {
             <Text style={[styles.statusTitle, { color: connectionView.color }]}>
               {connectionView.title}
             </Text>
-            <Text style={styles.statusSubtitle}>{connectionView.subtitle}</Text>
+            <Text style={styles.statusSubtitle}>
+              {connectionView.subtitle}
+              {isConnected && status.posture && (
+                ` · Postura: ${
+                  status.posture === 'standing' ? 'Parado' :
+                  status.posture === 'sitting' ? 'Sentado' :
+                  status.posture === 'damp' ? 'Relajado' :
+                  status.posture === 'moving' ? 'Moviéndose' :
+                  status.posture
+                }`
+              )}
+            </Text>
           </View>
           {status.connection_state === 'connecting' && (
             <ActivityIndicator size="small" color={connectionView.color} />

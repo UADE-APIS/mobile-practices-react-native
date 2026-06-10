@@ -38,7 +38,6 @@ export function getRobotStatus() {
 export function connectRobotRequest(robotType, iface) {
   return robotApi.post('/connect', {
     robot_type: robotType,
-    network_interface: iface,
   });
 }
 
@@ -67,5 +66,5 @@ export function getRobotActions() {
 }
 
 export function executeRobotAction(actionName) {
-  return robotApi.post(`/action/${actionName}`);
+  return robotApi.post(`/action/${actionName}`, {});
 }
