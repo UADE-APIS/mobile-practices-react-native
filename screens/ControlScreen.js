@@ -341,14 +341,17 @@ export default function ControlScreen() {
     setCommandLoading(type);
     stopContinuousSend(false);
     const commandId = ++latestCommandId.current;
+    
     try {
       const request = isStandUp ? standUpRobot : sitDownRobot;
+      
       await stopAfterPendingMoves();
       if (latestCommandId.current !== commandId) return;
 
-      // Dar tiempo a que el loop de Move() del backend se cancele del todo
-      // antes de mandar la postura (sino el robot vuelve a locomoción y la ignora).
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await stopRobot();
+      if (latestCommandId.current !== commandId) return;
+
+      await new Promise((resolve) => setTimeout(resolve, 400));
       if (latestCommandId.current !== commandId) return;
 
       await request();
@@ -364,6 +367,7 @@ export default function ControlScreen() {
       setYawKnobPosition({ x: 0, y: 0 });
       setMoveDragPosition({ x: 0, y: 0 });
       setYawDragPosition({ x: 0, y: 0 });
+      
       setFeedback({
         type: 'success',
         message: isStandUp ? 'Comando Pararse enviado correctamente.' : 'Comando Sentarse enviado correctamente.',
@@ -705,10 +709,6 @@ export default function ControlScreen() {
         <View style={styles.controlsColumn}>
           <View style={styles.panelCard}>
             <View style={styles.joystickHeader}>
-              <View style={styles.headerText}>
-                <Text style={styles.panelTitle}>Control táctil</Text>
-                <Text style={styles.panelSubtitle}>Soltar el control envía Detener.</Text>
-              </View>
               <TouchableOpacity
                 testID="orientation-toggle"
                 style={[styles.orientationButton, wantsLandscapeLayout && styles.orientationButtonActive]}

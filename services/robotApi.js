@@ -41,5 +41,5 @@ export function getRobotActions() {
 }
 
 export function executeRobotAction(actionName) {
-  return robotApi.post(`/action/${actionName}`, {});
+  return robotApi.post(`/action/${actionName}`);
 }

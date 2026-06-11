@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { getApiErrorMessage, normalizeServerUrl, API_TIMEOUT } from '../config/api';
 import { registerOperator, requestAuthToken } from '../services/authApi';
+import { disconnectRobotRequest } from '../services/robotApi';
 
 export const AuthContext = createContext(null);
 
@@ -79,6 +80,12 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
+      try {
+        await disconnectRobotRequest();
+      } catch (disconnectErr) {
+        console.log('Robot disconnect on logout:', disconnectErr.message);
+      }
+
       await SecureStore.deleteItemAsync('token');
       await SecureStore.deleteItemAsync('identifier');
       await SecureStore.deleteItemAsync('server_url');
