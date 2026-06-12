@@ -192,8 +192,10 @@ export function RobotProvider({ children }) {
     scheduleNextPollRef.current = scheduleNextPoll;
   }, [scheduleNextPoll]);
 
-  const fetchStatus = useCallback(async () => {
-    if (!user || isReconnecting.current || statusRef.current.connection_state === 'connecting') return;
+  const fetchStatus = useCallback(async (ignoreConnecting = false) => {
+    if (!user || isReconnecting.current) return;
+    if (ignoreConnecting !== true && statusRef.current.connection_state === 'connecting') return;
+    
     try {
       const response = await getRobotStatus();
       const nextStatus = response.data;
@@ -263,7 +265,6 @@ export function RobotProvider({ children }) {
     fetchStatusRef.current = fetchStatus;
   }, [fetchStatus]);
 
-  // Poll status periodically when user is logged in
   useEffect(() => {
     if (user) {
       fetchStatus();
@@ -273,6 +274,8 @@ export function RobotProvider({ children }) {
       lastConnectionParams.current = null;
       reconnectAttempts.current = 0;
       isReconnecting.current = false;
+      explicitDisconnect.current = true;
+      
       if (pollTimeoutRef.current) {
         clearTimeout(pollTimeoutRef.current);
         pollTimeoutRef.current = null;
@@ -307,7 +310,7 @@ export function RobotProvider({ children }) {
         scheduleNextPollRef.current();
       }
 
-      await fetchStatus();
+      await fetchStatus(true);
       return response.data;
     } catch (err) {
       if (err.response && err.response.status === 409 && err.response.data?.error === 'ALREADY_CONNECTED') {
