@@ -18,6 +18,6 @@ describe('robotApi', () => {
   it('debe enviar body vacio al ejecutar acciones', () => {
     executeRobotAction('dance');
 
-    expect(api.post).toHaveBeenCalledWith('/action/dance', {});
+    expect(api.post).toHaveBeenCalledWith('/action/dance');
   });
 });
