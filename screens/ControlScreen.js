@@ -345,10 +345,19 @@ export default function ControlScreen() {
     try {
       const request = isStandUp ? standUpRobot : sitDownRobot;
       
-      await stopAfterPendingMoves();
+      // Tolerar fallos del /stop previo (ej: robot acostado, motores apagados en Damp)
+      try {
+        await stopAfterPendingMoves();
+      } catch (stopErr) {
+        console.warn('stopAfterPendingMoves before posture failed (tolerated):', stopErr);
+      }
       if (latestCommandId.current !== commandId) return;
 
-      await stopRobot();
+      try {
+        await stopRobot();
+      } catch (stopErr) {
+        console.warn('stopRobot before posture failed (tolerated):', stopErr);
+      }
       if (latestCommandId.current !== commandId) return;
 
       await new Promise((resolve) => setTimeout(resolve, 400));
@@ -425,7 +434,8 @@ export default function ControlScreen() {
     }
 
     setScrollEnabled(true);
-    stopContinuousSend(true);
+    // No enviar /stop si hay un comando de postura ejecutándose (evita race condition con handlePosture)
+    stopContinuousSend(commandsEnabledRef.current);
   }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend]);
 
   const updateJoystickTouch = useCallback((type, event, shouldAssignTouch = false) => {
@@ -500,7 +510,8 @@ export default function ControlScreen() {
     }
 
     setScrollEnabled(true);
-    stopContinuousSend(true);
+    // No enviar /stop si hay un comando de postura ejecutándose (evita race condition con handlePosture)
+    stopContinuousSend(commandsEnabledRef.current);
   }, [hasActiveJoystickTouch, sendCombinedJoystickCommand, startContinuousSend, stopContinuousSend]);
 
   const updateDragTouch = useCallback((type, event, shouldAssignTouch = false) => {
